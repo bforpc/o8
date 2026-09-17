@@ -3,16 +3,16 @@
 **Self-hosted document management with a clear workspace, flexible filing and document-linked bookkeeping.**
 
 <p align="center">
-    <img src="/o8-1.png" alt="Screenshot" width="700">
+    <img src="/public/images/o8-1.png" alt="Screenshot" width="700">
 </p>
 
 [English](#english) · [Deutsch](#deutsch) · [License](LICENSE-o8.md) · [Third-party notices](THIRD-PARTY-NOTICES.md)
 
-> **Development status — M1 preview, not a production release.**
-> The feature descriptions below explain the intended finished product. Today, the repository contains an interactive browser-local prototype with fictional documents. Real authentication, enforced permissions and tenant isolation, database persistence, file handling, imports and the web installer are not implemented yet. Do not use this preview for real documents or credentials.
+> **Development status — M1 accepted, still a development preview, not a production release.**
+> The feature descriptions below explain the intended finished product. M2.2 includes a web installer, a versioned database schema, real login, mandatory initial password change and tenant/user administration with role checks and session revocation. The document interface remains a separate browser-local demo; document APIs, file handling and imports are not implemented yet. Do not use this preview for real documents.
 >
-> **Entwicklungsstand — M1-Vorschau, keine Produktivversion.**
-> Die folgenden Funktionen beschreiben das Zielprodukt. Aktuell läuft ein interaktiver, browserlokaler Prototyp mit erfundenen Dokumenten. Echte Anmeldung, durchgesetzte Rechte und Mandantentrennung, Datenbank, Dateiverarbeitung, Importe und Webinstaller folgen noch. Keine echten Dokumente oder Zugangsdaten verwenden.
+> **Entwicklungsstand — M1 abgenommen, weiterhin Entwicklungsvorschau, keine Produktivversion.**
+> Die folgenden Funktionen beschreiben das Zielprodukt. M2.2 enthält Webinstaller, versioniertes Datenbankschema, echte Anmeldung, erzwungenen Startpasswortwechsel und Mandanten-/Benutzerverwaltung mit Rechteprüfung und Sitzungswiderruf. Die Dokumentenoberfläche bleibt eine getrennte browserlokale Demo; Dokument-APIs, Dateiverarbeitung und Importe folgen noch. Keine echten Dokumente verwenden.
 
 ## English
 
@@ -27,7 +27,7 @@ Its central idea is simple: **a document exists once and can be linked to severa
 - **A focused workspace:** four resizable desktop columns for folders, document list, preview and details. Mobile devices use switchable views and a folder drawer. Column widths, appearance and typography belong to the user.
 - **Flexible organization:** nested virtual folders, searchable tags, metadata, confirmed drag-and-drop linking and bulk changes. A recoverable trash separates removing a document from removing a folder link.
 - **A dedicated inbox:** uploads, scanner/inbound folders, email attachments and WebDAV feed one review workflow. Incoming documents remain separate from the main archive until accepted.
-- **Search that stays understandable:** metadata and exact document IDs such as `D123`, date ranges, included/excluded tags, booking amounts and currencies, reference numbers, accounts, sorting, pagination and total result counts. Expired and non-searchable documents are excluded unless explicitly included in advanced search.
+- **Search that stays understandable:** metadata and exact document IDs such as `D123`, date ranges, included/excluded tags, booking amounts and currencies, reference numbers, accounts, admin-only owner filtering, a latest-N view for all users, sorting, pagination and total result counts. Expired and non-searchable documents are excluded unless explicitly included in advanced search.
 - **Bookkeeping attached to any document:** sender, reference/invoice number, date, net/tax/gross totals, multiple VAT rates, accounts and optional line items. Net or gross entry can drive the calculation. Each voucher has its own currency; EUR is the default. Different currencies are not silently converted or summed together.
 - **Optional AI-assisted processing:** retain configurable extraction and review workflows. Manually chosen tags can replace AI suggestions; unknown AI tags do not create new tag definitions. Any external processing depends on the configured provider.
 - **Independent tenants and clear permissions:** separate documents, users, folders, tags, bookkeeping, sources and settings per tenant. A tenant admin manages that tenant; regular users manage their own documents. Operator-level administration remains separate from document access.
@@ -39,14 +39,14 @@ o8's bookkeeping fields are a document-management aid. This project does not cla
 
 ### What can I try now?
 
-The M1 preview already demonstrates the four-column workspace, folder links, tags, advanced search, document flags, currency-aware bookkeeping forms, bulk editing, grouped settings, themes and mobile layouts.
+M1 was accepted on 17 September 2026. The preview demonstrates the four-column workspace, folder links, tags, advanced search, document flags, currency-aware bookkeeping forms, bulk editing, grouped settings, themes and mobile layouts.
 
 Demo tenant switching, user profiles and support-license verification are also available. **These are not production authentication or authorization.** Demo changes are stored in browser storage, and document previews are fictional HTML, not real PDF rendering.
 
 | Milestone | Scope |
 |---|---|
 | M1 — Current preview | Interface, document/folder model and interactive demo workflows |
-| M2 — Planned | Web installation, database, login, enforced tenant/user permissions, real files and server-side search |
+| M2 — In progress | Installer, login and tenant/user administration available; document APIs, real files and server-side search pending |
 | M3 — Planned | Inbox sources, import jobs, AI-assisted processing and progress reporting |
 | M4 — Planned | Reporting, bookkeeping integration and remaining administration |
 | M5 — Planned | Trial migration, validation and agreed cutover from o7 |
@@ -63,9 +63,9 @@ From the project directory:
 php -S 127.0.0.1:18088 router.php
 ```
 
-Open [the local preview](http://127.0.0.1:18088/). Use this local development server only for testing, not production hosting.
+Open [the local preview](http://127.0.0.1:18088/?demo=1). The root page opens installation/login. Use this local development server only for testing, not production hosting.
 
-The finished application's planned backend is PHP with MySQL/MariaDB. Supported database versions and production installation instructions will be finalized with M2. The installer and generated `config.php` / supplied `config.php.dist` are **not present yet**. No default admin login is available in M1.
+The M2.1 backend requires PDO MySQL, mbstring, sessions and MariaDB 10.6+ or MySQL 8.0+ (tested with MariaDB 11.8). A web installer and `config.php.dist` are available. Create a dedicated empty database, then run `php bin/setup.php token` locally and open the root page. The local setup code protects installation and the first `admin` / `owndms8` login; changing that password is mandatory. See [installation details](docs/INSTALLATION.md). Never publish `config.php` or `storage/system`. Document processing and automatic trash deletion remain unavailable.
 
 ### License and support
 
@@ -73,7 +73,7 @@ o8 uses the **o8 Community License 1.0**, a custom **source-available license, n
 
 Private use and an organization's own internal use, including internal commercial use, are free under its terms. Internal modifications are permitted. Redistribution, resale and hosting for third parties generally require permission; the license contains specific exceptions for GitHub forks/contributions and commissioned service providers. Optional commercial support is separate from the right to use the software. A support-license expiry must not disable Community functionality.
 
-This is a summary, not a substitute for the [German license text](LICENSE-o8.md). Third-party components retain their own licenses; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), including the documented open SVG-provenance findings.
+This is a summary, not a substitute for the [German license text](LICENSE-o8.md). Third-party components retain their own licenses; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), including the pinned Feather SVG sources and their MIT license.
 
 Project and licensing contact: [calicode.de](https://www.calicode.de) · [info@CaliCode.de](mailto:info@CaliCode.de).
 
@@ -104,7 +104,7 @@ Das Grundprinzip: **Ein Dokument existiert einmal und kann in mehreren Ordnern v
 - **Übersichtlicher Arbeitsplatz:** vier verstellbare Desktop-Spalten für Ordner, Dokumentliste, Vorschau und Details. Mobil gibt es umschaltbare Ansichten und eine aufklappbare Ordnerliste. Breiten, Darstellung und Schrift werden benutzerbezogen gespeichert.
 - **Flexible Ablage:** virtuelle Ordner mit Unterordnern, durchsuchbare Tags, Metadaten, bestätigtes Drag-and-drop und Massenänderungen. Ein Papierkorb ermöglicht die Wiederherstellung und trennt Dokumentlöschung vom Entfernen einer Verknüpfung.
 - **Gemeinsamer Eingang:** Uploads, Scanner-/Inbound-Verzeichnisse, E-Mail-Anhänge und WebDAV laufen in einer gemeinsamen Prüfung zusammen. Neue Dokumente bleiben bis zur Übernahme vom normalen Archiv getrennt.
-- **Verständliche Suche:** Metadaten und exakte Dokument-IDs wie `D123`, Datumsgrenzen, enthaltene/ausgeschlossene Tags, Buchungsbeträge und Währungen, Belegnummern, Konten, Sortierung, Seitennavigation und Gesamttrefferzahl. Abgelaufene und nicht suchbare Dokumente werden nur auf ausdrücklichen Wunsch in der Detailsuche eingeschlossen.
+- **Verständliche Suche:** Metadaten und exakte Dokument-IDs wie `D123`, Datumsgrenzen, enthaltene/ausgeschlossene Tags, Buchungsbeträge und Währungen, Belegnummern, Konten, Besitzerfilter für Admins, eine letzte-N-Ansicht für alle Benutzer, Sortierung, Seitennavigation und Gesamttrefferzahl. Abgelaufene und nicht suchbare Dokumente werden nur auf ausdrücklichen Wunsch in der Detailsuche eingeschlossen.
 - **Buchungsdaten für jede Dokumentart:** Absender, Beleg-/Rechnungsnummer, Datum, Netto/MWSt/Brutto, mehrere Steuersätze, Buchungskonten und optionale Positionen. Netto oder Brutto kann die Berechnungsgrundlage sein. Jeder Beleg besitzt eine Währung, standardmäßig EUR; unterschiedliche Währungen werden nicht stillschweigend umgerechnet oder addiert.
 - **Optionale AI-Unterstützung:** konfigurierbare Erkennung und anschließende Prüfung. Manuelle Tags können AI-Vorschläge ersetzen; unbekannte AI-Tags erzeugen keine neuen Tags. Eine Verarbeitung durch externe Dienste hängt vom gewählten Anbieter ab.
 - **Unabhängige Mandanten und klare Rechte:** eigene Dokumente, Benutzer, Ordner, Tags, Buchungen, Quellen und Einstellungen je Mandant. Ein Mandanten-Admin verwaltet seinen Mandanten, normale Benutzer ihre eigenen Dokumente. Die Betreiberverwaltung bleibt vom Dokumentzugriff getrennt.
@@ -116,14 +116,14 @@ Die Buchungsmaske unterstützt die Dokumentverwaltung. Das Projekt behauptet wed
 
 ### Was lässt sich heute ausprobieren?
 
-Die M1-Vorschau zeigt bereits den Vier-Spalten-Arbeitsplatz, Ordnerverknüpfungen, Tags, Detailsuche, Dokumentstatus, Buchungsmasken mit Währungen, Massenänderungen, gegliederte Einstellungen, Designs und mobile Ansichten.
+M1 wurde am 17. September 2026 abgenommen. Die Vorschau zeigt den Vier-Spalten-Arbeitsplatz, Ordnerverknüpfungen, Tags, Detailsuche, Dokumentstatus, Buchungsmasken mit Währungen, Massenänderungen, gegliederte Einstellungen, Designs und mobile Ansichten.
 
 Auch Demo-Mandantenwechsel, Benutzerprofile und die Prüfung von Supportlizenzen sind vorhanden. **Das ist noch keine produktive Anmeldung oder Rechteprüfung.** Änderungen liegen im Browser; die Vorschau zeigt erfundene HTML-Dokumente statt echter PDFs.
 
 | Meilenstein | Umfang |
 |---|---|
 | M1 — Aktuelle Vorschau | Oberfläche, Dokument-/Ordnermodell und bedienbare Demoabläufe |
-| M2 — Geplant | Webinstallation, Datenbank, Anmeldung, wirksame Mandanten-/Benutzerrechte, echte Dateien und Serversuche |
+| M2 — In Arbeit | Installer, Anmeldung und Mandanten-/Benutzerverwaltung vorhanden; Dokument-APIs, echte Dateien und Serversuche folgen |
 | M3 — Geplant | Eingangsquellen, Importjobs, AI-Verarbeitung und Fortschrittsanzeigen |
 | M4 — Geplant | Auswertung, Buchungsanbindung und weitere Administration |
 | M5 — Geplant | Probemigration, Prüfung und abgestimmter Wechsel von o7 |
@@ -140,9 +140,9 @@ Im Projektverzeichnis starten:
 php -S 127.0.0.1:18088 router.php
 ```
 
-Danach die [lokale Vorschau](http://127.0.0.1:18088/) öffnen. Der Entwicklungsserver ist nur für Tests gedacht, nicht für produktives Hosting.
+Danach die [lokale Vorschau](http://127.0.0.1:18088/?demo=1) öffnen. Die Startseite ohne Parameter führt zur Einrichtung/Anmeldung. Der Entwicklungsserver ist nur für Tests gedacht, nicht für produktives Hosting.
 
-Für das fertige Backend sind PHP und MySQL/MariaDB vorgesehen. Unterstützte Datenbankversionen und produktive Installationsanweisungen werden mit M2 festgelegt. Webinstaller, erzeugte `config.php` und mitgelieferte `config.php.dist` sind **noch nicht vorhanden**. In M1 gibt es keinen Standard-Adminlogin.
+Das M2.1-Backend benötigt PDO MySQL, mbstring, Sessions und MariaDB 10.6+ oder MySQL 8.0+ (getestet mit MariaDB 11.8). Webinstaller und `config.php.dist` sind vorhanden. Eigene leere Datenbank bereitstellen, lokal `php bin/setup.php token` ausführen und die Startseite öffnen. Der Einrichtungscode schützt Installation und erste Anmeldung als `admin` / `owndms8`; anschließend ist ein Passwortwechsel zwingend. Siehe [Installationsanleitung](docs/INSTALLATION.md). `config.php` und `storage/system` niemals veröffentlichen. Dokumentverarbeitung und automatische Papierkorblöschung sind noch nicht freigeschaltet.
 
 ### Lizenz und Support
 
@@ -150,7 +150,7 @@ o8 verwendet die **o8 Community License 1.0**, eine individuelle **Source-Availa
 
 Private Nutzung und eigene interne Nutzung durch Organisationen, auch innerhalb gewerblicher Tätigkeiten, sind unter ihren Bedingungen kostenlos. Interne Änderungen sind erlaubt. Weitergabe, Verkauf und Hosting für Dritte bedürfen grundsätzlich einer Genehmigung; Ausnahmen regelt die Lizenz für GitHub-Forks/-Beiträge und beauftragte Dienstleister. Optionaler kommerzieller Support ist vom Nutzungsrecht getrennt. Ein Supportablauf darf Community-Funktionen nicht sperren.
 
-Diese Zusammenfassung ersetzt nicht den [Lizenztext](LICENSE-o8.md). Fremdkomponenten behalten ihre eigenen Lizenzbedingungen; siehe [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), einschließlich der dokumentierten offenen Herkunftsfragen zu SVG-Symbolen.
+Diese Zusammenfassung ersetzt nicht den [Lizenztext](LICENSE-o8.md). Fremdkomponenten behalten ihre eigenen Lizenzbedingungen; siehe [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), einschließlich der fest versionierten Feather-SVG-Quellen und ihrer MIT-Lizenz.
 
 Projekt- und Lizenzkontakt: [calicode.de](https://www.calicode.de) · [info@CaliCode.de](mailto:info@CaliCode.de).
 
