@@ -2,6 +2,8 @@
 
 **Self-hosted document management with a clear workspace, flexible filing and document-linked bookkeeping.**
 
+<img src="/o8-1.png" alt="Screenshot" width="600">
+
 [English](#english) · [Deutsch](#deutsch) · [License](LICENSE-o8.md) · [Third-party notices](THIRD-PARTY-NOTICES.md)
 
 > **Development status — M1 preview, not a production release.**
