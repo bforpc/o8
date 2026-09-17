@@ -3,7 +3,7 @@
 **Self-hosted document management with a clear workspace, flexible filing and document-linked bookkeeping.**
 
 <p align="center">
-    <img src="/public/images/o8-1.png" alt="Screenshot" width="700">
+    <img src="o8-1.png" alt="Screenshot" width="700">
 </p>
 
 [English](#english) · [Deutsch](#deutsch) · [License](LICENSE-o8.md) · [Third-party notices](THIRD-PARTY-NOTICES.md)
