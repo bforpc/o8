@@ -1,0 +1,16 @@
+<?php
+declare(strict_types=1);
+// Copy to config.php for manual configuration; never publish that local file.
+// The o8/o8 credentials are installation examples, not safe production defaults.
+return [
+    'database' => [
+        'host' => 'localhost',
+        'port' => 3306,
+        'name' => 'o8',
+        'user' => 'o8',
+        'password' => 'o8',
+    ],
+    'timezone' => 'Europe/Berlin',
+    // Enable HTTP only for a trusted local development installation. HTTPS otherwise.
+    'allow_insecure_http' => false,
+];

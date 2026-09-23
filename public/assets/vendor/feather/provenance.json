@@ -1,0 +1,164 @@
+{
+  "name": "Feather Icons",
+  "version": "4.29.2",
+  "commit": "1b002399e8758fb2bccea4d07312dc9e0f43dcb8",
+  "importedAt": "2026-09-17",
+  "license": "MIT",
+  "copyright": "Copyright (c) 2013-2023 Cole Bemis",
+  "adaptation": "Original SVG contents wrapped in local symbols; local CSS sets stroke/size. Vendor text files normalized to one trailing LF.",
+  "files": [
+    {
+      "id": "i-document",
+      "path": "icons/file-text.svg",
+      "source": "https://raw.githubusercontent.com/feathericons/feather/1b002399e8758fb2bccea4d07312dc9e0f43dcb8/icons/file-text.svg",
+      "upstreamSha256": "2d2602aaaf18c691bd579bdc7fb07604cb70ff8b5b1db1e5e7997975824a9446",
+      "localSha256": "66d402f99a4507d3f3ca61db4d3e64de8030d053fedb3583bebf4f6768e7c789"
+    },
+    {
+      "id": "i-folder",
+      "path": "icons/folder.svg",
+      "source": "https://raw.githubusercontent.com/feathericons/feather/1b002399e8758fb2bccea4d07312dc9e0f43dcb8/icons/folder.svg",
+      "upstreamSha256": "d479596013ee6703bb7bb30515c5306e8624499643d947d9b9576d9003650b33",
+      "localSha256": "2088f40424aef198486fd4d35bbef6d167cb28205e122922bf8fe3407f65c97a"
+    },
+    {
+      "id": "i-search",
+      "path": "icons/search.svg",
+      "source": "https://raw.githubusercontent.com/feathericons/feather/1b002399e8758fb2bccea4d07312dc9e0f43dcb8/icons/search.svg",
+      "upstreamSha256": "5f27d6498c8d1746ef65458aedc42b51052a4ef1c52fb5d0cd900c19676a9db3",
+      "localSha256": "7f89a114975d0635db678fb98fdbdf6e7ddf277dd0f1d62300eeb4f1abf7655c"
+    },
+    {
+      "id": "i-inbox",
+      "path": "icons/inbox.svg",
+      "source": "https://raw.githubusercontent.com/feathericons/feather/1b002399e8758fb2bccea4d07312dc9e0f43dcb8/icons/inbox.svg",
+      "upstreamSha256": "4d343cee83a9cf83c40e4c9bee0a1e58cacab182c40c18bef706cb6f704a8647",
+      "localSha256": "a7ad1e3d6ae62fed51b9ae7f8dc4db65e39c07805960742471a7c3d7477ba6df"
+    },
+    {
+      "id": "i-chart",
+      "path": "icons/bar-chart-2.svg",
+      "source": "https://raw.githubusercontent.com/feathericons/feather/1b002399e8758fb2bccea4d07312dc9e0f43dcb8/icons/bar-chart-2.svg",
+      "upstreamSha256": "2cb18ce3a2eadcf27affa79565467e5174674b9e523caf264eed2bcbf2e36429",
+      "localSha256": "02d9a2583a46b36647296e45e9d8337a7d4ca935c4dbc9e09a8ec622cb01136c"
+    },
+    {
+      "id": "i-settings",
+      "path": "icons/sliders.svg",
+      "source": "https://raw.githubusercontent.com/feathericons/feather/1b002399e8758fb2bccea4d07312dc9e0f43dcb8/icons/sliders.svg",
+      "upstreamSha256": "59c71dcbe60e73e453a49139cc6cfbf9df0f908227b951b1739c88133e9ecb72",
+      "localSha256": "201b5bd368866149d14cf52fa82cf1ba66c696e02e86349fc878c7e11903bb9f"
+    },
+    {
+      "id": "i-plus",
+      "path": "icons/plus.svg",
+      "source": "https://raw.githubusercontent.com/feathericons/feather/1b002399e8758fb2bccea4d07312dc9e0f43dcb8/icons/plus.svg",
+      "upstreamSha256": "85779cf0106427ed7943bf3a296243b1cfa5dacc13d0f7683e96a0aa4e3176a8",
+      "localSha256": "d8d24cd1fcf1ad8834b20b7378e9d329a9872cf331ff53201df746dd5ef93d50"
+    },
+    {
+      "id": "i-close",
+      "path": "icons/x.svg",
+      "source": "https://raw.githubusercontent.com/feathericons/feather/1b002399e8758fb2bccea4d07312dc9e0f43dcb8/icons/x.svg",
+      "upstreamSha256": "9d855cf8aab176e80a0448bee43c56338d28c59ec91637ce034cced006e282a2",
+      "localSha256": "2fa6885d9170ce123367f961d9928c87aeb58bfb42ca26f8aed8f85b7cb4588d"
+    },
+    {
+      "id": "i-link",
+      "path": "icons/link.svg",
+      "source": "https://raw.githubusercontent.com/feathericons/feather/1b002399e8758fb2bccea4d07312dc9e0f43dcb8/icons/link.svg",
+      "upstreamSha256": "49a50faa4dd66581290286e93b5437eef2eb53e5d2b1056b465819e90d13d06e",
+      "localSha256": "3f712f179cc6c9dbb109d83aa80b527b710df1c12881144969630a5e72ae1487"
+    },
+    {
+      "id": "i-trash",
+      "path": "icons/trash-2.svg",
+      "source": "https://raw.githubusercontent.com/feathericons/feather/1b002399e8758fb2bccea4d07312dc9e0f43dcb8/icons/trash-2.svg",
+      "upstreamSha256": "d8bc68160668de5e1eea9ac399122e539658f1481d197f0dbea66e26e9afa12f",
+      "localSha256": "c8ab06474cc528c734c552dcb7b5c2d18b56db46fbef602926deb83b737eecba"
+    },
+    {
+      "id": "i-arrow",
+      "path": "icons/chevron-right.svg",
+      "source": "https://raw.githubusercontent.com/feathericons/feather/1b002399e8758fb2bccea4d07312dc9e0f43dcb8/icons/chevron-right.svg",
+      "upstreamSha256": "e37a663fc7cc5d1a0540e27ecb567d70e4706eb32f07e47f212369881bd999bc",
+      "localSha256": "41aa5e4775e7b5db7626f6e8ea8853981d2950c15d71b26bb40110885185dba1"
+    },
+    {
+      "id": "i-check",
+      "path": "icons/check.svg",
+      "source": "https://raw.githubusercontent.com/feathericons/feather/1b002399e8758fb2bccea4d07312dc9e0f43dcb8/icons/check.svg",
+      "upstreamSha256": "1df722c1758fb0cb4868c38eb038fecf64c3717fe09ceaeb43783b70d027a1c4",
+      "localSha256": "0ca39a4d5242d111a801b7260792db8c173000f2564b0ddeb6939c0b6c0ccdd7"
+    },
+    {
+      "id": "i-filter",
+      "path": "icons/filter.svg",
+      "source": "https://raw.githubusercontent.com/feathericons/feather/1b002399e8758fb2bccea4d07312dc9e0f43dcb8/icons/filter.svg",
+      "upstreamSha256": "244d81a7bcb14546f2e5e4f6cbb48b0ce1a99172a91a865664f524d65fb0fb4d",
+      "localSha256": "297c33bb69d1db9deb60d9304c7265cdc761dacb184c7ac063d4c262ae233577"
+    },
+    {
+      "id": "i-moon",
+      "path": "icons/moon.svg",
+      "source": "https://raw.githubusercontent.com/feathericons/feather/1b002399e8758fb2bccea4d07312dc9e0f43dcb8/icons/moon.svg",
+      "upstreamSha256": "ff41660bed6944d45049192d789b6c453ec133bd3e3ccb232907013c1a5ac2af",
+      "localSha256": "95228f7903c362f825eeeeeec2071d33d4299176b031ecb5145e3000828122df"
+    },
+    {
+      "id": "i-menu",
+      "path": "icons/menu.svg",
+      "source": "https://raw.githubusercontent.com/feathericons/feather/1b002399e8758fb2bccea4d07312dc9e0f43dcb8/icons/menu.svg",
+      "upstreamSha256": "896faf98953d6732f4286114a14401a0c881674d0d6f41d8253db24193ac51a5",
+      "localSha256": "6cf8139a8b73bea38e8acab8fab7e2eb2757d35bba57b067cd005635f7dd1714"
+    },
+    {
+      "id": "i-info",
+      "path": "icons/info.svg",
+      "source": "https://raw.githubusercontent.com/feathericons/feather/1b002399e8758fb2bccea4d07312dc9e0f43dcb8/icons/info.svg",
+      "upstreamSha256": "75e0cc23431cd121e2e9183937c34ebd3278a4185d643187b4da532aa9714853",
+      "localSha256": "f8414990facbea55b38da12dde132078131abdb70add4ce76b5d1c23e3a84322"
+    },
+    {
+      "id": "i-mail",
+      "path": "icons/mail.svg",
+      "source": "https://raw.githubusercontent.com/feathericons/feather/1b002399e8758fb2bccea4d07312dc9e0f43dcb8/icons/mail.svg",
+      "upstreamSha256": "21de9fe1c0255a74313e7856c8ca70cae602b7e585eb621847becadaf0700b28",
+      "localSha256": "0be16d7dbc5b30b2bba4df6326918c0fc99b9d48966031a107e6a98e054360f4"
+    },
+    {
+      "id": "i-upload",
+      "path": "icons/upload.svg",
+      "source": "https://raw.githubusercontent.com/feathericons/feather/1b002399e8758fb2bccea4d07312dc9e0f43dcb8/icons/upload.svg",
+      "upstreamSha256": "064372f5e25f78f8187888761abd8c61fa6e6620ee68adc9871416363d1ff983",
+      "localSha256": "b7eedbf2a2340603ae5fdf71da725f61ecc4ee79857df6596ee45d0440efde83"
+    },
+    {
+      "id": "i-cloud",
+      "path": "icons/cloud.svg",
+      "source": "https://raw.githubusercontent.com/feathericons/feather/1b002399e8758fb2bccea4d07312dc9e0f43dcb8/icons/cloud.svg",
+      "upstreamSha256": "45a52d3b54fb60f3fcdfedf60644bf36348b1db1dfff3b11c40746584fbdee25",
+      "localSha256": "30193c614d96404126af43c3e5ea6eeb33566026a3b9fb4588d44fc547d7a1f2"
+    },
+    {
+      "id": "i-restore",
+      "path": "icons/rotate-ccw.svg",
+      "source": "https://raw.githubusercontent.com/feathericons/feather/1b002399e8758fb2bccea4d07312dc9e0f43dcb8/icons/rotate-ccw.svg",
+      "upstreamSha256": "bbd1916b01dca1c1b6cc411369c4f578c6e1126da171f17bd5ab4e5be421bcc1",
+      "localSha256": "91299a6b652ee19d5ebd43e29c8b337db4873ee4a712e1c70d785d3d9bd82e10"
+    },
+    {
+      "id": "i-eye",
+      "path": "icons/eye.svg",
+      "source": "https://raw.githubusercontent.com/feathericons/feather/1b002399e8758fb2bccea4d07312dc9e0f43dcb8/icons/eye.svg",
+      "upstreamSha256": "3e6c211d83ca5a71baec90ec51a97ff52ce1df17307e3c56254958bc5e54daaf",
+      "localSha256": "833a0736810a08d504391959b3752c829715690018abea6490d869f8b1e1b0f9"
+    },
+    {
+      "path": "LICENSE",
+      "source": "https://raw.githubusercontent.com/feathericons/feather/1b002399e8758fb2bccea4d07312dc9e0f43dcb8/LICENSE",
+      "upstreamSha256": "308028e93fcf84972523cdf6e616f73168546b4953895f516d01287f16fe7bee",
+      "localSha256": "308028e93fcf84972523cdf6e616f73168546b4953895f516d01287f16fe7bee"
+    }
+  ]
+}

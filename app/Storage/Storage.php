@@ -1,0 +1,131 @@
+<?php
+declare(strict_types=1);
+namespace O8\Storage;
+use O8\Auth\{Actor,Access};
+
+final class Storage
+{
+    public function __construct(private \PDO $db, private string $projectRoot) {}
+    private function inside(string $path,string $base): bool { return $path===$base || str_starts_with($path,$base.'/'); }
+    public function base(string $path): string
+    {
+        $path=rtrim(trim($path),'/'); clearstatcache(true);
+        if (strlen($path)>700 || $path==='' || $path[0]!=='/' || realpath($path)!==$path || !is_dir($path)
+            || in_array($path,['/root','/home','/tmp','/var','/mnt','/srv','/media','/usr','/etc','/opt','/var/www','/var/www/html'],true)
+            || $this->inside($this->projectRoot,$path) || $this->inside($path,$this->projectRoot) || $this->inside($path,'/var/www')
+            || $this->inside($path,'/etc') || $this->inside($path,'/proc') || $this->inside($path,'/sys') || $this->inside($path,'/dev')) throw new \RuntimeException('Vorhandenen kanonischen Storage-Basispfad außerhalb des Projekts/Webroots angeben. Keine System- oder Sammelverzeichnisse.');
+        $web=realpath($_SERVER['DOCUMENT_ROOT']??'');
+        if ($web && $web!=='/' && $this->inside($path,$web)) throw new \RuntimeException('Dokumentablage darf nicht im Webroot liegen.');
+        for ($part=$path;$part!==dirname($part);$part=dirname($part)) if (is_link($part)) throw new \RuntimeException('Storage-Pfade dürfen keine Symlinks enthalten.');
+        if (!is_readable($path) || !is_writable($path) || !is_executable($path)) throw new \RuntimeException('Storage nicht lesbar, schreibbar oder zugänglich. Mount und Webserver-Rechte prüfen.');
+        return $path;
+    }
+    private function identities(string $owner,string $group): array
+    {
+        if (!function_exists('posix_getpwnam')) throw new \RuntimeException('PHP-POSIX wird für die Linux-Rechteprüfung benötigt.');
+        if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_.-]{0,99}\$?$/D',$owner) || !preg_match('/^[a-zA-Z_][a-zA-Z0-9_.-]{0,99}\$?$/D',$group)) throw new \RuntimeException('Gültigen Linux-Besitzer und Gruppe angeben.');
+        $user=posix_getpwnam($owner); $grp=posix_getgrnam($group);
+        if (!$user || !$grp) throw new \RuntimeException('Linux-Besitzer oder Gruppe existiert nicht auf diesem Server.');
+        return [(int)$user['uid'],(int)$grp['gid']];
+    }
+    public function permissions(string $path,array $location,bool $directory=false): void
+    {
+        [$uid,$gid]=$this->identities($location['linux_owner'],$location['linux_group']); $mode=$directory?0750:0640;
+        clearstatcache(true,$path); $s=lstat($path);
+        if (!$s || is_link($path)) throw new \RuntimeException('Unsicheres Storage-Objekt.');
+        if (($s['uid']!==$uid && !@chown($path,$uid)) || ($s['gid']!==$gid && !@chgrp($path,$gid)) || !@chmod($path,$mode)) throw new \RuntimeException('Besitzer, Gruppe oder Dateirechte können nicht gesetzt werden. Mount-Optionen/Webserver-Rechte prüfen.');
+        clearstatcache(true,$path); $s=lstat($path);
+        if (!$s || $s['uid']!==$uid || $s['gid']!==$gid || ($s['mode']&0777)!==$mode) throw new \RuntimeException('Storage übernimmt die benötigten Linux-Rechte nicht.');
+    }
+    public function locations(Actor $actor): array
+    {
+        (new Access($this->db))->operator($actor);
+        return $this->db->query("SELECT t.id,t.name,t.public_id,t.active,s.root_path,s.linux_owner,s.linux_group,s.identity_json FROM tenants t LEFT JOIN storage_locations s ON s.tenant_id=t.id AND s.storage_key='main' ORDER BY t.name,t.id")->fetchAll();
+    }
+    public function location(Actor $actor): ?array
+    {
+        (new Access($this->db))->tenant($actor);
+        $s=$this->db->prepare("SELECT s.*,t.public_id FROM storage_locations s JOIN tenants t ON t.id=s.tenant_id WHERE s.tenant_id=? AND s.storage_key='main' AND s.active=1"); $s->execute([$actor->tenantId()]);
+        return $s->fetch()?:null;
+    }
+    public function paths(array $location): array
+    {
+        $base=$this->base($location['root_path']); $uuid=$location['public_id'];
+        if (!preg_match('/^[a-f0-9-]{36}$/D',$uuid)) throw new \RuntimeException('Ungültige Storage-Zuordnung.');
+        $target=$base.'/'.$uuid; $saved=json_decode($location['identity_json']??'null',true);
+        clearstatcache(true);
+        if (!$saved || is_link($target) || realpath($target)!==$target || !is_dir($target)) throw new \RuntimeException('Storage zuerst durch den Betreiber einrichten und prüfen lassen.');
+        $b=stat($base); $t=stat($target); $marker=$target.'/.o8-storage';
+        if (!$b || !$t || $b['dev']!=$saved['base_dev'] || $b['ino']!=$saved['base_ino'] || $t['dev']!=$saved['tenant_dev'] || $t['ino']!=$saved['tenant_ino']
+            || is_link($marker) || !is_file($marker) || !hash_equals($saved['marker'],(string)@file_get_contents($marker))) throw new \RuntimeException('Storage-Identität geändert oder Mount fehlt. Zugriff gesperrt; Betreiber muss die Ablage prüfen.');
+        return [$base,$target];
+    }
+    public function configure(Actor $actor,int $tenant,string $path,string $owner,string $group): void
+    {
+        $actor->requireOperator(); $this->identities($owner,$group);
+        $lock='o8.storage.'.substr(hash('sha256',(string)$this->db->query('SELECT DATABASE()')->fetchColumn()),0,40);
+        $s=$this->db->prepare('SELECT GET_LOCK(?,0)'); $s->execute([$lock]);
+        if ((int)$s->fetchColumn()!==1) throw new \RuntimeException('Storage wird gerade geändert. Bitte erneut versuchen.');
+        $probe=null; $created=null; $markerCreated=false; $marker=null;
+        try {
+            $this->db->beginTransaction();
+            $s=$this->db->prepare('SELECT * FROM tenants WHERE id=? AND active=1 FOR UPDATE'); $s->execute([$tenant]); $t=$s->fetch();
+            (new Access($this->db))->operator($actor);
+            if (!$t) throw new \RuntimeException('Aktiver Mandant nicht verfügbar.');
+            $s=$this->db->prepare('SELECT 1 FROM platform_settings WHERE setting_key=?'); $s->execute(['tenant.delete.'.$tenant]); if ($s->fetchColumn()) throw new \RuntimeException('Mandant wird gelöscht.');
+            $base=$this->base($path); $target=$base.'/'.$t['public_id'];
+            $s=$this->db->prepare("SELECT * FROM storage_locations WHERE tenant_id=? AND storage_key='main'"); $s->execute([$tenant]); $old=$s->fetch();
+            if ($old) {
+                if ($old['root_path']!==$base || $old['linux_owner']!==$owner || $old['linux_group']!==$group) throw new \RuntimeException('Bereits zugewiesene Ablage ist fest gebunden. Ein Storage-Umzug benötigt einen gesonderten geprüften Ablauf.');
+                $this->paths($old+['public_id'=>$t['public_id']]);
+            } else {
+                foreach ($this->db->query('SELECT s.root_path,t.public_id FROM storage_locations s JOIN tenants t ON t.id=s.tenant_id')->fetchAll() as $other) {
+                    $otherTarget=rtrim($other['root_path'],'/').'/'.$other['public_id'];
+                    if ($this->inside($target,$otherTarget) || $this->inside($otherTarget,$target)) throw new \RuntimeException('Ablage überschneidet sich mit einer bestehenden Mandantenablage.');
+                }
+                if (file_exists($target) || is_link($target)) throw new \RuntimeException('Mandantenverzeichnis existiert bereits ohne geprüfte Zuordnung. Bestehende Dateien werden nicht übernommen oder verändert.');
+                if (!@mkdir($target,0750)) throw new \RuntimeException('Mandantenverzeichnis kann nicht angelegt werden.');
+                $created=$target;
+            }
+            $location=['linux_owner'=>$owner,'linux_group'=>$group];
+            if ($created) $this->permissions($target,$location,true);
+            $probe=$target.'/.probe-'.bin2hex(random_bytes(16)); $f=@fopen($probe,'x+b');
+            if (!$f) throw new \RuntimeException('Storage-Schreibtest fehlgeschlagen.');
+            try {
+                $payload=random_bytes(64);
+                if (fwrite($f,$payload)!==64 || !fflush($f) || !fsync($f)) throw new \RuntimeException('Storage-Schreibtest konnte nicht sicher abgeschlossen werden.');
+                $this->permissions($probe,$location); rewind($f);
+                if (fread($f,64)!==$payload) throw new \RuntimeException('Storage-Lesetest fehlgeschlagen.');
+            } finally { fclose($f); }
+            if (!@rename($probe,$probe.'.renamed')) throw new \RuntimeException('Storage-Umbenennen nicht möglich.');
+            $probe.='.renamed';
+            if (!@unlink($probe)) throw new \RuntimeException('Storage-Löschtest fehlgeschlagen.');
+            $probe=null;
+            $marker=$target.'/.o8-storage'; $token=$old?json_decode($old['identity_json'],true)['marker']:bin2hex(random_bytes(32));
+            if (!$old) {
+                $f=@fopen($marker,'x');
+                if (!$f) throw new \RuntimeException('Storage-Markierung konnte nicht angelegt werden.');
+                $markerCreated=true;
+                try { if (fwrite($f,$token)!==strlen($token) || !fflush($f) || !fsync($f)) throw new \RuntimeException('Storage-Markierung unvollständig.'); } finally { fclose($f); }
+                $this->permissions($marker,$location);
+            }
+            $b=stat($base); $d=stat($target); $identity=['base_dev'=>$b['dev'],'base_ino'=>$b['ino'],'tenant_dev'=>$d['dev'],'tenant_ino'=>$d['ino'],'marker'=>$token];
+            $s=$this->db->prepare("INSERT INTO storage_locations (tenant_id,storage_key,name,root_path,linux_owner,linux_group,identity_json) VALUES (?,'main','Dokumentablage',?,?,?,?) ON DUPLICATE KEY UPDATE identity_json=VALUES(identity_json),updated_at=UTC_TIMESTAMP()");
+            $s->execute([$tenant,$base,$owner,$group,json_encode($identity,JSON_THROW_ON_ERROR)]);
+            $s=$this->db->prepare("INSERT INTO platform_audit_events (operator_id,tenant_id,action) VALUES (?,?,'storage.checked')"); $s->execute([$actor->id(),$tenant]);
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            if ($probe && is_file($probe)) @unlink($probe);
+            // Never remove a configured target after an ambiguous commit.
+            if ($created && $this->db->getAttribute(\PDO::ATTR_CONNECTION_STATUS)) {
+                $s=$this->db->prepare("SELECT 1 FROM storage_locations WHERE tenant_id=? AND storage_key='main'"); $s->execute([$tenant]);
+                if (!$s->fetchColumn()) {
+                    if ($markerCreated && $marker && is_file($marker)) @unlink($marker);
+                    @rmdir($created);
+                }
+            }
+            throw $e;
+        } finally { $s=$this->db->prepare('SELECT RELEASE_LOCK(?)'); $s->execute([$lock]); }
+    }
+}

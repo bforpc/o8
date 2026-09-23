@@ -1,0 +1,17 @@
+/o7
+/docs
+/runcodex.sh
+/runopencode.sh
+/commit.sh
+/.env
+/config/local.php
+/config.php
+/config.php.*
+!/config.php.dist
+/storage/*
+!/storage/.gitkeep
+/node_modules/
+/vendor/
+/tests/
+/tests/artifacts/
+/.DS_Store

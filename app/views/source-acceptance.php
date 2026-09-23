@@ -1,0 +1,11 @@
+<?php $policy=$cfg['acceptance']??[]; ?>
+<div class="col-12">
+<details class="source-card" <?= !empty($policy['enabled'])?'open':'' ?>>
+<summary><strong>Automatische DMS-Übernahme</strong><span class="small text-body-secondary ms-2"><?= !empty($policy['enabled'])?'aktiv':'ausgeschaltet' ?></span></summary>
+<div class="row g-3 pt-3" data-source-acceptance>
+<div class="col-12"><label class="form-check-label"><input class="form-check-input me-2" type="checkbox" name="acceptance_enabled" value="1" <?= !empty($policy['enabled'])?'checked':'' ?>>Vollständig geprüfte Dokumente automatisch ins DMS übernehmen</label><p class="form-text mb-0">Gilt auch für bereits wartende Dokumente dieser Quelle. Fehlende oder widersprüchliche Angaben bleiben zur Prüfung im Eingang. Besitzer bleibt der Quellenbenutzer.</p></div>
+<div class="col-md-6"><label class="form-label d-block">KI-Tags<select class="form-select" name="acceptance_tag_mode"><option value="add" <?= ($policy['tagMode']??'add')==='add'?'selected':'' ?>>Vorhandene Katalogtreffer ergänzen</option><option value="replace" <?= ($policy['tagMode']??'add')==='replace'?'selected':'' ?>>Ignorieren – nur feste Tags verwenden</option></select></label><p class="form-text mb-0">Unbekannte KI-Tags werden niemals angelegt.</p></div>
+<div class="col-md-6"><span class="form-label d-block">Feste Tags</span><div id="<?= h($prefix) ?>-acceptance-tags" data-acceptance-tags data-catalogue="<?= h(json_encode($acceptanceTags,JSON_THROW_ON_ERROR)) ?>" data-selected="<?= h(json_encode($policy['tags']??[],JSON_THROW_ON_ERROR)) ?>"></div><div data-acceptance-tag-inputs></div></div>
+<div class="col-12"><span class="form-label d-block">Zielordner</span><div class="inbound-folder-tree" data-acceptance-folders data-folders="<?= h(json_encode($acceptanceFolders,JSON_THROW_ON_ERROR)) ?>" data-selected="<?= h(json_encode($policy['folders']??[],JSON_THROW_ON_ERROR)) ?>"></div><p class="form-text mb-0">Ohne Auswahl: Alle Dokumente und Nicht zugeordnet.</p></div>
+<div class="col-12"><p class="small text-body-secondary mb-0">Für die unbeaufsichtigte Übernahme ist der Quellenworker erforderlich, auch bei Abrufintervall 0. Einmal pro Minute per Cron:<br><code>cd <?= h($root) ?> &amp;&amp; O8_SOURCE_WORKER=1 php bin/source-fetch.php work --once</code></p></div>
+</div></details></div>
