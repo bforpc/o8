@@ -1,0 +1,216 @@
+<?php
+declare(strict_types=1);
+require dirname(__DIR__).'/app/bootstrap.php';
+use O8\Core\Runtime;
+use O8\Auth\{AuthService,BootstrapService};
+use O8\Install\Migrator;
+use O8\Admin\Administration;
+use O8\Storage\Storage;
+use O8\Documents\Documents;
+use O8\Inbound\{InboundScanner,InboundWorkbench,InboundAcceptance};
+if (PHP_SAPI!=='cli' || !preg_match('#^/tmp/o8-m2-test\.[A-Za-z0-9]+/db\.sock$#D',$argv[1]??'')) exit("Isolated test socket required.\n");
+$db=new PDO('mysql:unix_socket='.$argv[1].';charset=utf8mb4','root','',[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC,PDO::ATTR_EMULATE_PREPARES=>false]);
+$db->exec("SET time_zone = '+00:00'"); // Match the application's Database::connect session.
+$name='acceptance_test_'.bin2hex(random_bytes(4)); $db->exec('CREATE DATABASE '.$name); $db->exec('USE '.$name);
+$tmp=dirname($argv[1]).'/'.$name; mkdir($tmp); mkdir($tmp.'/files'); mkdir($tmp.'/inbound');
+$root=dirname(__DIR__); $runtime=new Runtime($tmp.'/system'); $identity=$runtime->identity(); $m=new Migrator($db,$root.'/database/migrations'); $m->install($identity); $m->upgrade($identity);
+$auth=new AuthService($db,$runtime,$identity['key']); $admin=new Administration($db); $storage=new Storage($db,$root); $docs=new Documents($db,$root); $accept=new InboundAcceptance($db,$root); $workbench=new InboundWorkbench($db,$root); $checks=0;
+function check(bool $ok,string $label):void { global $checks; if (!$ok) throw new RuntimeException('FAIL '.$label); ++$checks; echo "PASS $label\n"; }
+function rejects(callable $fn,string $label):void { try { $fn(); } catch (RuntimeException|InvalidArgumentException $e) { check(true,$label); return; } check(false,$label); }
+$session=$auth->login('operator','admin','owndms8','test',$runtime->issueSetupToken()); $session=$auth->changePassword($auth->actor($session),'owndms8','operator-secret');
+(new BootstrapService($db))->complete($auth->actor($session),'Admin','admin@example.test','Acceptance'); $operator=$auth->actor($session);
+$a=$auth->actor($auth->login('account','admin','operator-secret','test'));
+$admin->createUser($a,['login'=>'user','name'=>'User','email'=>'user@example.test','password'=>'secret6'],'user');
+$session=$auth->login('account','user','secret6','test'); $u=$auth->actor($auth->changePassword($auth->actor($session),'secret6','user-secret'));
+$admin->createTenant($operator,'Foreign','',['login'=>'foreign','name'=>'Foreign','email'=>'foreign@example.test','password'=>'secret6']);
+$session=$auth->login('account','foreign','secret6','test'); $b=$auth->actor($auth->changePassword($auth->actor($session),'secret6','foreign-secret'));
+$storage->configure($operator,$a->tenantId(),$tmp.'/files',posix_getpwuid(posix_geteuid())['name'],posix_getgrgid(posix_getegid())['name']);
+[, $target]=$storage->paths($storage->location($a));
+$docs->createTag($a,'Rechnung'); $docs->createTag($a,'Manuell'); $catalogue=array_column($docs->tags($a),'id','name');
+$docs->folderWrite($a,'create',0,'Ziel'); $folder=(int)$docs->folders($a)[0]['id'];
+$docs->saveAccountingSettings($a,['framework'=>'Test','vatRates'=>['7','19'],'accounts'=>[['code'=>'4900','name'=>'Aufwand']]]); $account=$docs->accounting($a)['accounts'][0]['id'];
+$s=$db->prepare("INSERT INTO import_sources (tenant_id,owner_id,kind,name,enabled,config_json) VALUES (?,?,'inbound','Acceptance source',1,?)"); $s->execute([$a->tenantId(),$a->id(),json_encode(['path'=>$tmp.'/inbound'])]); $source=(int)$db->lastInsertId();
+$json=json_encode(['dokument'=>['titel'=>'KI-Titel','dokumenttyp'=>'Rechnung','tags'=>['rechnung','Rechnungen']],'daten'=>['dokumentdatum'=>'2026-09-21'],'parteien'=>['absender'=>['firma'=>'Fiktive Firma']],'referenzen'=>['rechnungsnummer'=>'TEST-42'],'betraege'=>['netto'=>'100.00','mwst'=>'19.00','brutto'=>'119.00','waehrung'=>'EUR']]);
+foreach (['one','two','three','four'] as $key) { file_put_contents($tmp.'/inbound/'.$key.'.pdf',"%PDF-1.4\n% Acceptance $key\n"); file_put_contents($tmp.'/inbound/'.$key.'.json',$json); file_put_contents($tmp.'/inbound/'.$key.'.txt','Unique OCR '.$key); }
+(new InboundScanner($db))->scan($a,$source); $items=array_column($workbench->items($a),null,'original_name'); $item=$items['one.pdf']; $id=(int)$item['id']; $rev=(int)$item['revision'];
+$proposal=$accept->proposal($a,$id);
+check($proposal['title']==='KI-Titel' && $proposal['documentType']==='invoice' && $proposal['reference']==='TEST-42','AI metadata becomes an editable proposal');
+check($proposal['invoiceAvailable'] && $proposal['invoice']['taxes'][0]['rate']==='19' && $proposal['ignoredTags']===['Rechnungen'],'consistent AI totals get configured rate and unknown tags stay excluded');
+$input=[...$proposal,'tagMode'=>'add','tags'=>[(int)$catalogue['Manuell']],'folders'=>[$folder,$folder],'invoice'=>[...$proposal['invoice'],'accountId'=>(string)$account,'taxes'=>[['rate'=>'19','amount'=>'19.00']]]];
+rejects(fn()=>$accept->accept($u,$id,$rev,$input),'normal user cannot accept another owner item');
+rejects(fn()=>$accept->proposal($b,$id),'foreign tenant cannot read proposal');
+rejects(fn()=>$accept->accept($b,$id,$rev,$input),'foreign tenant cannot accept item');
+$before=glob($target.'/*');
+rejects(fn()=>$accept->accept($a,$id,$rev+1,$input),'stale revision rejected');
+rejects(fn()=>$accept->accept($a,$id,$rev,[...$input,'proposalToken'=>str_repeat('0',64)]),'changed sidecar proposal cannot be accepted unseen');
+rejects(fn()=>$accept->accept($a,$id,$rev,[...$input,'folders'=>[$folder,99999999]]),'invalid target after booking rolls back all changes');
+rejects(fn()=>$accept->accept($a,$id,$rev,[...$input,'invoice'=>[...$input['invoice'],'taxes'=>[['rate'=>'18','amount'=>'19.00']]]]),'normal accounting rate validation is enforced');
+rejects(fn()=>$accept->accept($a,$id,$rev,[...$input,'date'=>'2026-02-31','newTags'=>['Rollbackprüfung']]),'normal document date validation is enforced');
+rejects(fn()=>$accept->accept($a,$id,$rev,[...$input,'ownerId'=>$b->id()]),'foreign owner cannot be assigned');
+check($before===glob($target.'/*') && (int)$db->query('SELECT COUNT(*) FROM documents')->fetchColumn()===0 && (int)$db->query('SELECT COUNT(*) FROM document_invoices')->fetchColumn()===0,'failed acceptance leaves no document, booking or copied files');
+check((int)$db->query('SELECT COUNT(*) FROM tags')->fetchColumn()===2,'failed acceptance also rolls back new catalogue tags');
+check((int)$workbench->get($a,$id)['revision']===$rev,'failed acceptance keeps entrance revision unchanged');
+$db->prepare("UPDATE inbound_items SET ai_status='running' WHERE id=?")->execute([$id]);
+rejects(fn()=>$accept->accept($a,$id,$rev,$input),'running AI blocks acceptance');
+$db->prepare("UPDATE inbound_items SET ai_status='ready' WHERE id=?")->execute([$id]);
+$document=$accept->accept($a,$id,$rev,$input); $doc=$docs->get($a,$document);
+check(!$doc['in_inbox'] && $doc['source_type']==='inbound' && $doc['folders']===[$folder],'accepted document leaves inbox and deduplicates folder links');
+check(count($doc['tags'])===2 && (int)$db->query('SELECT COUNT(*) FROM tags')->fetchColumn()===2,'AI matches merge with manual tags without creating new tags');
+check((float)$doc['invoice']['gross']===119.0 && (int)$doc['invoice']['accountId']===(int)$account,'booking uses configured account and normal tax calculation');
+check($doc['ai_data']===$json && $doc['search_text']==='Unique OCR one','AI JSON and OCR are available in document data');
+$s=$db->prepare('SELECT relative_path,role FROM document_files WHERE document_id=?'); $s->execute([$document]); $files=$s->fetchAll(); $contents=[]; foreach ($files as $file) $contents[$file['role']]=file_get_contents($target.'/'.$file['relative_path']);
+check($contents['ai_source']===$json && $contents['ocr_text']==='Unique OCR one' && count($files)===3,'original sidecar bytes are securely archived with original');
+rejects(fn()=>$accept->accept($a,$id,$rev,$input),'repeated acceptance does not create duplicate documents');
+check((int)$db->query('SELECT COUNT(*) FROM documents')->fetchColumn()===1 && $workbench->count($a)===3,'source transition and document commit together');
+foreach (['two.pdf'=>'replace','three.pdf'=>'add'] as $filename=>$mode) {
+    $i=$items[$filename]; $d=$accept->accept($a,(int)$i['id'],(int)$i['revision'],[...$input,'proposalToken'=>$accept->proposal($a,(int)$i['id'])['proposalToken'],'tagMode'=>$mode,'invoice'=>null,'folders'=>[],'ownerId'=>$u->id()]); $saved=$docs->get($u,$d);
+    check((int)$saved['owner_id']===$u->id() && $saved['invoice']===null && $saved['folders']===[] && count($saved['tags'])===($mode==='replace'?1:2),'admin owner choice and '.$mode.' tags without booking/folders');
+}
+$i=$items['four.pdf']; $db->prepare('UPDATE inbound_items SET owner_id=? WHERE id=?')->execute([$u->id(),$i['id']]);
+$d=$accept->accept($u,(int)$i['id'],(int)$i['revision'],[...$input,'proposalToken'=>$accept->proposal($u,(int)$i['id'])['proposalToken'],'invoice'=>null,'folders'=>[],'ownerId'=>$u->id()]);
+check((int)$docs->get($u,$d)['owner_id']===$u->id(),'normal user accepts own entrance item');
+check($workbench->count($a)===0,'accepted items no longer appear in entrance count');
+check($docs->listing($a,['scope'=>'unfiled'])['total']===3 && $docs->listing($u,['scope'=>'unfiled'])['total']===3,'accepted documents without folders appear in unfiled for admin and owner');
+check($docs->listing($a,['scope'=>'unfiled','query'=>'D'.$document])['total']===0 && $docs->listing($u,['scope'=>'unfiled','query'=>'D'.$d])['total']===1,'unfiled search includes accepted unlinked documents but excludes linked documents');
+check($docs->listing($b,['scope'=>'unfiled'])['total']===0,'unfiled acceptance results remain tenant isolated');
+check($docs->listing($a,['scope'=>'all','query'=>'D'.$document,'invoiceNumbers'=>'TEST-42','amountFrom'=>'119','amountTo'=>'119'])['total']===1,'accepted booking participates in combined document search');
+// A fetched WebDAV item is already held in tenant storage, unlike a local scanner file.
+$s=$db->prepare("INSERT INTO import_sources (tenant_id,owner_id,kind,name,enabled,config_json) VALUES (?,?,'webdav','Fetched fixture',1,'{}')"); $s->execute([$a->tenantId(),$u->id()]); $remoteSource=(int)$db->lastInsertId();
+$bytes="%PDF-1.4\n% fetched acceptance fixture\n"; $hash=hash('sha256',$bytes);
+$s=$db->prepare("INSERT INTO source_items (tenant_id,source_id,remote_key_hash,sha256,status) VALUES (?,?,?,?,'downloaded')"); $s->execute([$a->tenantId(),$remoteSource,hash('sha256','webdav-acceptance'),$hash]); $sourceItem=(int)$db->lastInsertId();
+$s=$db->prepare("INSERT INTO inbound_items (tenant_id,owner_id,source_item_id,original_name,mime_type,size_bytes) VALUES (?,?,?,'Fetched.pdf','application/pdf',?)"); $s->execute([$a->tenantId(),$u->id(),$sourceItem,strlen($bytes)]); $remoteId=(int)$db->lastInsertId();
+mkdir($target.'/inbound'); $relative='inbound/'.bin2hex(random_bytes(24)).'.pdf'; file_put_contents($target.'/'.$relative,$bytes);
+$s=$db->prepare("INSERT INTO inbound_files (tenant_id,inbound_item_id,role,relative_path,original_name,mime_type,sha256,size_bytes) VALUES (?,?,'original',?,'Fetched.pdf','application/pdf',?,?)"); $s->execute([$a->tenantId(),$remoteId,$relative,$hash,strlen($bytes)]);
+$manual=['title'=>'Ohne KI','date'=>'2026-09-21','documentType'=>'document','tagMode'=>'replace','tags'=>[],'folders'=>[],'proposalToken'=>$accept->proposal($a,$remoteId)['proposalToken']];
+rejects(fn()=>$accept->accept($u,$remoteId,1,[...$manual,'ownerId'=>$a->id()]),'normal user cannot change document owner during acceptance');
+rejects(fn()=>$accept->accept($u,$remoteId,1,[...$manual,'folders'=>[$folder]]),'normal user cannot link to another owners folder during acceptance');
+$remoteDocument=$accept->accept($a,$remoteId,1,$manual); $remoteDoc=$docs->get($u,$remoteDocument);
+check((int)$remoteDoc['owner_id']===$u->id() && $remoteDoc['source_type']==='webdav' && $remoteDoc['invoice']===null,'admin preserves source owner by default and accepts fetched file without AI');
+check($docs->listing($u,['scope'=>'unfiled','query'=>'D'.$remoteDocument])['total']===1,'WebDAV acceptance without a target folder is immediately visible in unfiled');
+$file=$docs->open($u,$remoteDocument); try { check(stream_get_contents($file['handle'])===$bytes,'accepted remote original remains verified and readable'); } finally { fclose($file['handle']); }
+check(is_file($target.'/'.$relative) && $workbench->count($a)===0,'accepted remote entrance is archived, not exposed as pending or destructively removed');
+// Batch preflight must never silently substitute filenames/dates or allow a booking bypass.
+$baseAi=json_decode($json,true); $cases=[];
+$cases['batch-one']=$baseAi; $cases['batch-one']['betraege']=['brutto'=>'119','mwstsatz'=>'19','waehrung'=>'EUR'];
+$cases['batch-two']=$baseAi; $cases['batch-two']['betraege']=['netto'=>'100','mwstsatz'=>'7','waehrung'=>'EUR'];
+$cases['no-title']=$baseAi; unset($cases['no-title']['dokument']['titel']);
+$cases['no-date']=$baseAi; unset($cases['no-date']['daten']['dokumentdatum']);
+$cases['bad-date']=$baseAi; $cases['bad-date']['daten']['dokumentdatum']='2026-02-31';
+$cases['incomplete']=$baseAi; $cases['incomplete']['betraege']=['brutto'=>'119'];
+$cases['no-number']=$baseAi; unset($cases['no-number']['referenzen']['rechnungsnummer']);
+$cases['contract']=$baseAi; $cases['contract']['dokument']['dokumenttyp']='Vertrag'; unset($cases['contract']['betraege']);
+$cases['changed']=$baseAi;
+foreach ($cases as $key=>$ai) { file_put_contents($tmp.'/inbound/'.$key.'.pdf',"%PDF-1.4\n% Batch $key\n"); file_put_contents($tmp.'/inbound/'.$key.'.json',json_encode($ai)); }
+(new InboundScanner($db))->scan($a,$source); $pending=array_column($workbench->items($a),null,'original_name');
+$selection=[]; foreach($cases as $key=>$unused) {$i=$pending[$key.'.pdf']; $selection[]=['id'=>(int)$i['id'],'revision'=>(int)$i['revision']];}
+$countBefore=(int)$db->query('SELECT COUNT(*) FROM documents')->fetchColumn();
+$preview=$accept->batchPreview($a,$selection); $previewById=array_column($preview,null,'id');
+check(count($preview)===9 && count(array_filter($preview,fn($row)=>$row['batchEligible']))===6,'batch preview allows incomplete booking amounts but still requires AI title and date');
+check($preview[0]['amounts']['brutto']==='119' && $preview[0]['bookingTotals']['net']==='100.00' && $preview[0]['bookingDerived']['net'] && $preview[0]['invoice']['number']==='TEST-42','batch overview exposes original values, calculated totals and booking header per document');
+check((int)$db->query('SELECT COUNT(*) FROM documents')->fetchColumn()===$countBefore,'preflight is read-only and creates no documents');
+$foreignPreview=$accept->batchPreview($u,[$selection[0]]);
+check(!$foreignPreview[0]['batchEligible'] && !isset($foreignPreview[0]['title']),'unauthorized preflight reveals no document metadata');
+foreach(['no-title','no-date','bad-date'] as $key) {
+    $i=$pending[$key.'.pdf']; $p=$previewById[$i['id']];
+    rejects(fn()=>$accept->acceptBatchItem($a,(int)$i['id'],(int)$i['revision'],$p['proposalToken'],['title'=>'forged','date'=>'2026-09-21','invoice'=>null]),'batch endpoint rejects '.$key.' even with fabricated client metadata');
+}
+$shared=['tags'=>[(int)$catalogue['Manuell']],'tagMode'=>'replace','folders'=>[$folder],'title'=>'forged','ownerId'=>$u->id(),'invoice'=>null];
+$accepted=[];
+foreach(['batch-one','batch-two'] as $key) {
+    $i=$pending[$key.'.pdf']; $p=$previewById[$i['id']]; $accepted[]=$accept->acceptBatchItem($a,(int)$i['id'],(int)$i['revision'],$p['proposalToken'],$shared);
+}
+$first=$docs->get($a,$accepted[0]); $secondDoc=$docs->get($a,$accepted[1]);
+check($first['title']==='KI-Titel' && $first['document_date']==='2026-09-21' && (int)$first['owner_id']===$a->id(),'batch derives title/date/owner server-side, ignoring client overrides');
+check((float)$first['invoice']['gross']===119.0 && (float)$secondDoc['invoice']['gross']===107.0,'batch stores individually calculated bookings through normal validation');
+check($first['folders']===[$folder] && $secondDoc['folders']===[$folder] && $first['tags']===[(int)$catalogue['Manuell']] && $secondDoc['tags']===$first['tags'],'common folder/tag replacement affects exactly the accepted documents');
+$i=$pending['no-number.pdf']; $p=$previewById[$i['id']];
+$unnumbered=$accept->acceptBatchItem($a,(int)$i['id'],(int)$i['revision'],$p['proposalToken'],$shared);
+$unnumberedDoc=$docs->get($a,$unnumbered);
+check($unnumberedDoc['invoice']['number']==='' && (float)$unnumberedDoc['invoice']['gross']===119.0,'document with complete booking amounts can be accepted without invoice number');
+$i=$pending['incomplete.pdf']; $p=$previewById[$i['id']];
+$partialDocument=$accept->acceptBatchItem($a,(int)$i['id'],(int)$i['revision'],$p['proposalToken'],$shared);
+$partial=$docs->get($a,$partialDocument);
+check($partial['invoice']['mode']==='partial' && $partial['invoice']['net']===null && $partial['invoice']['tax']===null && (float)$partial['invoice']['gross']===119.0,'batch accepts gross-only booking without inventing net or tax');
+check($docs->listing($a,['scope'=>'all','amountFrom'=>'119','amountTo'=>'119','query'=>'D'.$partialDocument])['total']===1,'gross-only amount remains searchable');
+$docs->saveInvoice($a,$partialDocument,(int)$partial['revision'],['sender'=>'Fiktive Firma','number'=>'TEST-42','date'=>'2026-09-21','mode'=>'totals','accountId'=>'','currency'=>'EUR','net'=>'100.00','taxes'=>[['rate'=>'19','amount'=>'19.00']],'items'=>[]]);
+check($docs->get($a,$partialDocument)['invoice']['mode']==='totals','partial booking can be completed through the existing validated editor');
+$i=$pending['batch-one.pdf']; $p=$previewById[$i['id']]; rejects(fn()=>$accept->acceptBatchItem($a,(int)$i['id'],(int)$i['revision'],$p['proposalToken'],$shared),'replayed batch progress request never duplicates a document');
+$i=$pending['contract.pdf']; $p=$previewById[$i['id']];
+rejects(fn()=>$accept->acceptBatchItem($a,(int)$i['id'],(int)$i['revision'],$p['proposalToken'],[...$shared,'folders'=>[99999999]]),'one failing batch item rolls back all of its own writes');
+check((int)$db->query('SELECT COUNT(*) FROM documents')->fetchColumn()===$countBefore+4 && $workbench->get($a,(int)$i['id'])['state']==='pending','successful items stay committed, failed item remains pending');
+$contract=$accept->acceptBatchItem($a,(int)$i['id'],(int)$i['revision'],$p['proposalToken'],[]);
+check($docs->get($a,$contract)['invoice']===null,'non-accounting document can be accepted without fabricated booking');
+$i=$pending['changed.pdf']; $p=$previewById[$i['id']]; $changed=$cases['changed']; $changed['dokument']['titel']='Changed after preview'; file_put_contents($tmp.'/inbound/changed.json',json_encode($changed));
+rejects(fn()=>$accept->acceptBatchItem($a,(int)$i['id'],(int)$i['revision'],$p['proposalToken'],$shared),'batch rechecks AI content before commit');
+// Automatic acceptance reuses the same proposal, revisions and transaction.
+$manager=new \O8\Inbound\SourceManager($db,$identity);
+$sourceInput=['kind'=>'webdav','name'=>'Auto fixture','interval'=>0,'url'=>'https://example.test/dav/','username'=>'test','secret'=>'fixture-secret','enabled'=>true];
+$autoSource=$manager->save($u,$sourceInput);
+$auto=new \O8\Inbound\AutomaticAcceptance($db,$root);
+$sourceRow=array_values(array_filter($manager->sources($u),fn($s)=>(int)$s['id']===$autoSource))[0];
+check(!$sourceRow['config']['acceptance']['enabled'],'automatic acceptance is disabled by default');
+rejects(fn()=>$manager->save($u,[...$sourceInput,'id'=>$autoSource,'revision'=>$sourceRow['revision'],'acceptanceEnabled'=>true,'acceptanceFolders'=>[$folder]]),'source settings reject another owners target folder');
+rejects(fn()=>$manager->save($u,[...$sourceInput,'id'=>$autoSource,'revision'=>$sourceRow['revision'],'acceptanceTags'=>[99999999]]),'source settings reject missing or foreign tags');
+$makeAuto=function(array $ai) use($db,$a,$u,$autoSource,$target):int {
+    $key=bin2hex(random_bytes(12)); $bytes="%PDF-1.4\n% automatic fixture $key\n";
+    $s=$db->prepare("INSERT INTO source_items (tenant_id,source_id,remote_key_hash,sha256,status) VALUES (?,?,?,?,'downloaded')"); $s->execute([$a->tenantId(),$autoSource,hash('sha256',$key),hash('sha256',$bytes)]); $si=(int)$db->lastInsertId();
+    $s=$db->prepare("INSERT INTO inbound_items (tenant_id,owner_id,source_item_id,original_name,mime_type,size_bytes,ai_status,has_json_sidecar,json_valid) VALUES (?,?,?,'Auto.pdf','application/pdf',?,'ready',1,1)"); $s->execute([$a->tenantId(),$u->id(),$si,strlen($bytes)]); $id=(int)$db->lastInsertId();
+    foreach(['original'=>[$bytes,'pdf','application/pdf'],'json'=>[json_encode($ai),'json','application/json']] as $role=>[$content,$extension,$mime]) {
+        $path='inbound/'.bin2hex(random_bytes(24)).'.'.$extension; file_put_contents($target.'/'.$path,$content);
+        $s=$db->prepare('INSERT INTO inbound_files (tenant_id,inbound_item_id,role,relative_path,original_name,mime_type,sha256,size_bytes) VALUES (?,?,?,?,?,?,?,?)'); $s->execute([$a->tenantId(),$id,$role,$path,'Auto.'.$extension,$mime,hash('sha256',$content),strlen($content)]);
+    }
+    return $id;
+};
+$autoId=$makeAuto($cases['batch-one']);
+check($auto->runNext()===null,'disabled policy never consumes a pending file');
+$manager->save($u,[...$sourceInput,'id'=>$autoSource,'revision'=>$sourceRow['revision'],'acceptanceEnabled'=>true,'acceptanceTagMode'=>'replace','acceptanceTags'=>[$catalogue['Manuell']]]);
+$result=$auto->runNext(); $autoDoc=$docs->get($u,$result['documentId']);
+check($result['id']===$autoId && $result['status']==='accepted' && (int)$autoDoc['owner_id']===$u->id(),'automatic worker accepts as source owner');
+check($autoDoc['tags']===[(int)$catalogue['Manuell']] && $autoDoc['folders']===[] && (float)$autoDoc['invoice']['gross']===119.0,'automatic acceptance uses fixed tags, calculated booking and optional folders');
+check($auto->runNext()===null,'worker replay creates no duplicate');
+$badId=$makeAuto($cases['incomplete']); $validId=$makeAuto($cases['batch-two']);
+$result=$auto->runNext();
+check($result['id']===$badId && $result['status']==='accepted' && $docs->get($u,$result['documentId'])['invoice']['mode']==='partial','automatic acceptance stores a gross-only booking instead of blocking it');
+check($auto->runNext()['id']===$validId,'next automatic candidate is processed after a partial booking');
+$waiting=$makeAuto($cases['batch-one']); $db->prepare("UPDATE inbound_items SET ai_status='running' WHERE id=?")->execute([$waiting]);
+check($auto->runNext()===null,'automatic worker skips active AI');
+$db->prepare("UPDATE inbound_items SET ai_status='ready' WHERE id=?")->execute([$waiting]);
+$db->prepare('UPDATE users SET active=0 WHERE id=?')->execute([$u->id()]);
+check($auto->runNext()===null,'inactive owner cannot auto accept');
+$db->prepare('UPDATE users SET active=1 WHERE id=?')->execute([$u->id()]);
+$sourceRow=array_values(array_filter($manager->sources($u),fn($s)=>(int)$s['id']===$autoSource))[0];
+$manager->save($u,[...$sourceInput,'id'=>$autoSource,'revision'=>$sourceRow['revision'],'acceptanceEnabled'=>false]);
+check($auto->runNext()===null,'turning policy off preserves waiting documents');
+$docs->folderWrite($u,'create',0,'Auto target'); $autoFolder=(int)$docs->folders($u)[0]['id'];
+$sourceRow=array_values(array_filter($manager->sources($u),fn($s)=>(int)$s['id']===$autoSource))[0];
+$manager->save($u,[...$sourceInput,'id'=>$autoSource,'revision'=>$sourceRow['revision'],'acceptanceEnabled'=>true,'acceptanceTagMode'=>'add','acceptanceFolders'=>[$autoFolder],'acceptanceTags'=>[$catalogue['Manuell'],$catalogue['Manuell']]]);
+$result=$auto->runNext(); $autoLinked=$docs->get($u,$result['documentId']);
+check($autoLinked['folders']===[$autoFolder] && count($autoLinked['tags'])===2 && (int)$db->query('SELECT COUNT(*) FROM tags')->fetchColumn()===2,'automatic folder selection and deduplicated known AI/manual tags use normal rules');
+$docs->folderWrite($u,'create',0,'Vanishing target'); $vanishing=(int)array_values(array_filter($docs->folders($u),fn($f)=>$f['name']==='Vanishing target'))[0]['id'];
+$sourceRow=array_values(array_filter($manager->sources($u),fn($s)=>(int)$s['id']===$autoSource))[0];
+$manager->save($u,[...$sourceInput,'id'=>$autoSource,'revision'=>$sourceRow['revision'],'acceptanceEnabled'=>true,'acceptanceFolders'=>[$vanishing]]);
+$docs->folderWrite($u,'delete',$vanishing,''); $brokenId=$makeAuto($cases['batch-one']);
+$beforeBroken=(int)$db->query('SELECT COUNT(*) FROM documents')->fetchColumn();
+check($auto->runNext()['status']==='blocked' && (int)$db->query('SELECT COUNT(*) FROM documents')->fetchColumn()===$beforeBroken && $workbench->get($u,$brokenId)['state']==='pending','removed configured target fails atomically without losing entrance file');
+$guardItem=$pending['no-title.pdf']; $guardProposal=$accept->proposal($a,(int)$guardItem['id']);
+$beforeGuard=(int)$db->query('SELECT COUNT(*) FROM documents')->fetchColumn();
+rejects(fn()=>$accept->accept($a,(int)$guardItem['id'],(int)$guardItem['revision'],[...$input,'proposalToken'=>$guardProposal['proposalToken']],static function(){throw new RuntimeException('Policy changed');}),'policy guard inside acceptance can veto a stale configuration');
+check((int)$db->query('SELECT COUNT(*) FROM documents')->fetchColumn()===$beforeGuard,'failed policy guard rolls back document creation');
+$created=$accept->accept($a,(int)$guardItem['id'],(int)$guardItem['revision'],[...$input,'proposalToken'=>$guardProposal['proposalToken'],'invoice'=>null,'folders'=>[],'tags'=>[],'tagMode'=>'replace','newTags'=>['Übernahmeprüfung']]);
+$newTag=(int)$db->query("SELECT id FROM tags WHERE normalized_name='übernahmeprüfung'")->fetchColumn();
+check($newTag>0 && $docs->get($a,$created)['tags']===[$newTag],'manual acceptance creates and assigns an explicitly selected new catalogue tag');
+check((int)$db->query('SELECT COUNT(*) FROM tags')->fetchColumn()===3,'unknown AI suggestions are still not added to the catalogue');
+$manualAi=$cases['incomplete']; unset($manualAi['daten']['dokumentdatum']);
+file_put_contents($tmp.'/inbound/manual-partial.pdf',"%PDF-1.4\n% Manual partial booking\n");
+file_put_contents($tmp.'/inbound/manual-partial.json',json_encode($manualAi));
+(new InboundScanner($db))->scan($a,$source);
+$manualItem=array_values(array_filter($workbench->items($a),static fn($row)=>$row['original_name']==='manual-partial.pdf'))[0];
+$manualProposal=$accept->proposal($a,(int)$manualItem['id']);
+$beforeManual=(int)$db->query('SELECT COUNT(*) FROM documents')->fetchColumn();
+rejects(fn()=>$accept->accept($a,(int)$manualItem['id'],(int)$manualItem['revision'],[...$manualProposal,'invoice'=>null,'tags'=>[],'folders'=>[],'partialInvoice'=>[...$manualProposal['partialInvoice'],'gross'=>'ungültig']]),'invalid partial amount is rejected server-side');
+check((int)$db->query('SELECT COUNT(*) FROM documents')->fetchColumn()===$beforeManual && $workbench->get($a,(int)$manualItem['id'])['state']==='pending','invalid partial booking rolls back document acceptance');
+$manualDocument=$accept->accept($a,(int)$manualItem['id'],(int)$manualItem['revision'],[...$manualProposal,'invoice'=>null,'tags'=>[],'folders'=>[],'tagMode'=>'replace']);
+$manualSaved=$docs->get($a,$manualDocument);
+check($manualSaved['invoice']['mode']==='partial' && $manualSaved['invoice']['date']===null && (float)$manualSaved['invoice']['gross']===119.0,'manual acceptance keeps gross-only booking even without a document date');
+echo "$checks inbound acceptance checks passed.\n";
+$db->exec('DROP DATABASE '.$name);

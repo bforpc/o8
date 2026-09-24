@@ -38,12 +38,15 @@ final class InboundAcceptance
         if (in_array($item['ai_status'],['queued','running'],true)) $reasons[]='KI-Verarbeitung läuft noch.';
         $active=$this->db->prepare("SELECT 1 FROM inbound_ai_job_items WHERE tenant_id=? AND inbound_item_id=? AND status IN ('queued','running') LIMIT 1"); $active->execute([$actor->tenantId(),$id]);
         if ($active->fetchColumn()) $reasons[]='KI-Verarbeitung läuft noch.';
-        if ($booking['invoiceWarning']!=='') $reasons[]=$booking['invoiceWarning'];
-        if (!$booking['invoiceAvailable'] && in_array($type,['invoice','credit_note'],true)) $reasons[]='Buchungsbeträge der Rechnung/Gutschrift fehlen.';
-        if ($booking['invoiceAvailable']) {
+        $completeBooking=$booking['invoiceAvailable'] && $booking['invoiceWarning']==='';
+        if ($completeBooking) {
             try { (new Documents($this->db,$this->root))->validateInvoiceInput($actor,$booking['invoice']); }
-            catch (\RuntimeException $error) { $reasons[]=$error instanceof \PDOException?'Buchungsdaten können nicht geprüft werden.':$error->getMessage(); }
+            catch (\RuntimeException $error) { $completeBooking=false; $booking['invoiceWarning']=$error->getMessage(); }
         }
+        $totals=$booking['bookingTotals']??[];
+        $partialBooking=!$completeBooking && count(array_filter([$totals['net']??null,$totals['tax']??null,$totals['gross']??null],static fn($value)=>$value!==null))>0
+            ? ['sender'=>$sender,'number'=>$number,'date'=>$date,'currency'=>$booking['invoice']['currency'],'accountId'=>$booking['invoice']['accountId'],
+                'net'=>$totals['net']??null,'tax'=>$totals['tax']??null,'gross'=>$totals['gross']??null] : null;
         foreach ([$sender,$number,$text($ai['referenzen']['vertragsnummer']??$ai['referenzen']['aktenzeichen']??'')] as $value) if (mb_strlen($value)>255) $reasons[]='Ein KI-Metadatenfeld ist länger als 255 Zeichen.';
         if (mb_strlen($text($ai['inhalt']['kurzzusammenfassung']??''))>10000) $reasons[]='KI-Zusammenfassung ist zu lang.';
         return ['id'=>(int)$item['id'],'revision'=>(int)$item['revision'],'ownerId'=>(int)$item['owner_id'],
@@ -52,7 +55,8 @@ final class InboundAcceptance
             'title'=>$aiTitle?:$item['original_name'],'sender'=>$sender,'date'=>$date,'documentType'=>$type,
             'reference'=>$number?:$text($ai['referenzen']['vertragsnummer']??$ai['referenzen']['aktenzeichen']??''),
             'memo'=>$text($ai['inhalt']['kurzzusammenfassung']??''),'matchedTags'=>$inspection['matchedTags']??[],'ignoredTags'=>$inspection['ignoredTags']??[],
-            'warning'=>$inspection['error']??'', 'amounts'=>$amounts,'aiTags'=>$rawTags,...$booking];
+            'warning'=>$inspection['error']??'', 'amounts'=>$amounts,'aiTags'=>$rawTags,...$booking,
+            'invoiceComplete'=>$completeBooking,'partialInvoice'=>$partialBooking];
     }
 
     private function validDate(string $value): bool
@@ -71,7 +75,7 @@ final class InboundAcceptance
             try {
                 $p=$this->proposal($actor,$id);
                 if ((int)$p['revision']!==(int)$item['revision']) { $p['batchEligible']=false; $p['batchReasons'][]='Zwischenzeitlich geändert. Eingang neu laden.'; }
-                $rows[]=array_intersect_key($p,array_flip(['id','revision','proposalToken','originalName','title','date','batchEligible','batchReasons','invoiceAvailable','invoiceCalculations','matchedTags','ignoredTags','invoice','invoiceWarning','amounts','bookingTotals','bookingDerived']));
+                $rows[]=array_intersect_key($p,array_flip(['id','revision','proposalToken','originalName','title','date','batchEligible','batchReasons','invoiceAvailable','invoiceComplete','partialInvoice','invoiceCalculations','matchedTags','ignoredTags','invoice','invoiceWarning','amounts','bookingTotals','bookingDerived']));
             } catch (\RuntimeException $error) {
                 $rows[]=['id'=>$id,'revision'=>(int)$item['revision'],'batchEligible'=>false,'batchReasons'=>['Nicht verfügbar oder nicht lesbar. Bitte Eingang prüfen.']];
             }
@@ -86,7 +90,7 @@ final class InboundAcceptance
         if (!$p['batchEligible']) throw new \RuntimeException(implode(' ',$p['batchReasons']));
         if ($p['revision']!==$revision || !hash_equals($p['proposalToken'],$token)) throw new \RuntimeException('KI-Vorschlag wurde geändert. Bitte erneut prüfen.');
         // No client-provided titles, dates, owners or invoice bypasses in the batch endpoint.
-        return $this->accept($actor,$id,$revision,[...$p,'invoice'=>$p['invoiceAvailable']?$p['invoice']:null,
+        return $this->accept($actor,$id,$revision,[...$p,'invoice'=>$p['invoiceComplete']?$p['invoice']:null,
             'tags'=>$shared['tags']??[],'folders'=>$shared['folders']??[],'tagMode'=>$shared['tagMode']??'add'],$guard);
     }
 
@@ -132,9 +136,13 @@ final class InboundAcceptance
                 $selected=$tags; if ($mode==='add') $selected=array_merge($selected,array_column($inspection['matchedTags']??[],'id'));
                 $documents->save($actor,$document,1,[...$input,'tags'=>$selected]);
                 $next=2;
+                if (($input['invoice']??null)!==null && ($input['partialInvoice']??null)!==null) throw new \RuntimeException('Buchungsdaten sind widersprüchlich.');
                 if (($input['invoice']??null)!==null) {
                     if (!is_array($input['invoice'])) throw new \RuntimeException('Ungültige Buchungsdaten.');
                     $documents->saveInvoice($actor,$document,$next++,$input['invoice']);
+                } elseif (($input['partialInvoice']??null)!==null) {
+                    if (!is_array($input['partialInvoice'])) throw new \RuntimeException('Ungültige unvollständige Buchungsdaten.');
+                    $documents->savePartialInvoice($actor,$document,$next++,$input['partialInvoice']);
                 }
                 foreach ($folders as $folder) $documents->link($actor,$document,$next++,$folder,false);
                 $owner=$input['ownerId']??$item['owner_id'];

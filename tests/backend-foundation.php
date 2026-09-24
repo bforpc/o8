@@ -1,0 +1,47 @@
+<?php
+declare(strict_types=1);
+require dirname(__DIR__).'/app/bootstrap.php';
+use O8\Core\Runtime;
+use O8\Install\Migrator;
+use O8\Auth\{AuthService,BootstrapService,Actor};
+if (PHP_SAPI!=='cli' || !preg_match('#^/tmp/o8-m2-test\.[A-Za-z0-9]+/db\.sock$#D',$argv[1]??'')) exit("Only an isolated test socket under /tmp/o8-m2-test.* is allowed.\n");
+$pdo=new PDO('mysql:unix_socket='.$argv[1].';charset=utf8mb4','root','',[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC,PDO::ATTR_EMULATE_PREPARES=>false]);
+$pdo->exec('CREATE DATABASE foundation_test'); $pdo->exec('USE foundation_test');
+$runtime=new Runtime(dirname($argv[1]).'/runtime'); $identity=$runtime->identity();
+$path=dirname(__DIR__).'/database/migrations'; $m=new Migrator($pdo,$path);
+$checks=0;
+function check(bool $condition,string $label): void { global $checks; if (!$condition) throw new RuntimeException('FAIL: '.$label); $checks++; echo "PASS $label\n"; }
+function rejects(callable $callback,string $label): void { try { $callback(); } catch (Throwable $e) { check(true,$label); return; } check(false,$label); }
+check(!$m->installed($identity),'empty database is not installed');
+$m->install($identity); check($m->installed($identity),'full schema and bootstrap operator installed');
+rejects(fn()=>$m->install($identity),'reinstall is locked');
+rejects(fn()=>$m->installed(['id'=>Runtime::uuid(),'key'=>$identity['key']]),'foreign installation identity rejected');
+$auth=new AuthService($pdo,$runtime,$identity['key']);
+rejects(fn()=>$auth->login('operator','admin','owndms8','127.0.0.1'),'known start password without local proof rejected');
+$token=$runtime->issueSetupToken(); $session=$auth->login('operator','admin','owndms8','127.0.0.1',$token); $actor=$auth->actor($session);
+rejects(fn()=>$actor->requireOperator(),'forced password change blocks administration');
+rejects(fn()=>(new BootstrapService($pdo))->complete($actor,'Test','admin@example.test','Test'),'bootstrap blocked before password change');
+rejects(fn()=>$auth->changePassword($actor,'owndms8','owndms8'),'known start password cannot be retained');
+$changed=$auth->changePassword($actor,'owndms8','Test-private-password-123');
+check($auth->actor($session)===null,'password change revokes previous sessions');
+$actor=$auth->actor($changed);
+rejects(fn()=>$actor->requireOperator(),'unfinished bootstrap still blocks normal administration');
+$uuid=(new BootstrapService($pdo))->complete($actor,'Test Admin','admin@example.test','Test tenant');
+$actor=$auth->actor($changed); $actor->requireOperator();
+rejects(fn()=>$actor->documentScope(),'operator cannot query documents');
+rejects(fn()=>(new BootstrapService($pdo))->complete($actor,'Test','a@example.test','Second'),'bootstrap cannot be replayed');
+$admin=$auth->actor($auth->login('account','admin','Test-private-password-123','127.0.0.1'));
+check($admin!==null && $admin->row['email_verified_at']===null,'explicit first tenant membership without invented verification');
+rejects(fn()=>$admin->requireOperator(),'tenant admin cannot administer platform');
+check($admin->canAccess(['tenant_id'=>$admin->tenantId(),'owner_id'=>999]),'admin can access documents inside own tenant');
+check(!$admin->canAccess(['tenant_id'=>$admin->tenantId()+1,'owner_id'=>$admin->id()]),'admin cannot access another tenant');
+$user=new Actor('tenant',array_replace($admin->row,['role'=>'user']));
+check($user->canAccess(['tenant_id'=>$user->tenantId(),'owner_id'=>$user->id()]),'user can access own document');
+check(!$user->canAccess(['tenant_id'=>$user->tenantId(),'owner_id'=>999]),'user cannot access others documents');
+[$sql,$params]=$user->documentScope(); check($sql==='d.tenant_id = ? AND d.owner_id = ?' && $params===[$user->tenantId(),$user->id()],'user SQL scope includes tenant and owner');
+$stmt=$pdo->prepare('INSERT INTO tenants (public_id,name) VALUES (?,?)'); $stmt->execute([Runtime::uuid(),'Foreign tenant']); $foreign=(int)$pdo->lastInsertId();
+rejects(function() use($pdo,$foreign,$admin) { $s=$pdo->prepare("INSERT INTO documents (tenant_id,owner_id,title,source_type) VALUES (?,?,'Cross tenant','test')"); $s->execute([$foreign,$admin->id()]); },'database rejects cross-tenant document owner');
+$pdo->exec('CREATE DATABASE foreign_test'); $pdo->exec('USE foreign_test'); $pdo->exec('CREATE TABLE valuable_data (id INT)');
+rejects(fn()=>(new Migrator($pdo,$path))->install($identity),'installer refuses nonempty foreign database');
+check((int)$pdo->query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE()")->fetchColumn()===1,'foreign tables untouched');
+echo "$checks backend checks passed. Test data retained in isolated temporary server only.\n";

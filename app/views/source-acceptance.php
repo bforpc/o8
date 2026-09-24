@@ -1,6 +1,6 @@
 <?php $policy=$cfg['acceptance']??[]; ?>
 <div class="col-12">
-<details class="source-card" <?= !empty($policy['enabled'])?'open':'' ?>>
+<details class="source-card o8-info-group o8-info-group--strong" <?= !empty($policy['enabled'])?'open':'' ?>>
 <summary><strong>Automatische DMS-Übernahme</strong><span class="small text-body-secondary ms-2"><?= !empty($policy['enabled'])?'aktiv':'ausgeschaltet' ?></span></summary>
 <div class="row g-3 pt-3" data-source-acceptance>
 <div class="col-12"><label class="form-check-label"><input class="form-check-input me-2" type="checkbox" name="acceptance_enabled" value="1" <?= !empty($policy['enabled'])?'checked':'' ?>>Vollständig geprüfte Dokumente automatisch ins DMS übernehmen</label><p class="form-text mb-0">Gilt auch für bereits wartende Dokumente dieser Quelle. Fehlende oder widersprüchliche Angaben bleiben zur Prüfung im Eingang. Besitzer bleibt der Quellenbenutzer.</p></div>

@@ -89,7 +89,7 @@ final class AiBookingProposal
         if (isset($amounts['steuern']) && (!is_array($amounts['steuern']) || !array_is_list($amounts['steuern']) || count($amounts['steuern'])>20)) $warning='Ungültige oder zu umfangreiche KI-Steueraufteilung.';
         if ($rateWarning!=='') $warning=$rateWarning;
         return ['invoice'=>$invoice,'invoiceAvailable'=>$available,'invoiceWarning'=>$warning,'invoiceCalculations'=>$notes,
-            'bookingTotals'=>['net'=>$net===null?null:$format($net),'tax'=>$tax===null?null:$format($tax),'gross'=>$net!==null&&$tax!==null?$format($net+$tax):($gross===null?null:$format($gross))],
+            'bookingTotals'=>['net'=>$net===null?null:$format($net),'tax'=>$tax===null?null:$format($tax),'gross'=>$gross===null?null:$format($gross)],
             'bookingDerived'=>['net'=>$before[0]===null&&$net!==null,'tax'=>$before[1]===null&&$tax!==null,'gross'=>$net!==null&&$tax!==null&&$before[2]!==$net+$tax]];
     }
     private static function rounded(int $numerator,int $denominator): int

@@ -18,7 +18,7 @@ final class Migrator
 
     public function current(): bool
     {
-        $s=$this->db->prepare('SELECT applied_at FROM o8_migrations WHERE version=?'); $s->execute(['010_inbound_acceptance.sql']);
+        $s=$this->db->prepare('SELECT applied_at FROM o8_migrations WHERE version=?'); $s->execute(['012_partial_inbound_bookings.sql']);
         return (bool)$s->fetchColumn();
     }
 

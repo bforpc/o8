@@ -128,4 +128,73 @@ final class Storage
             throw $e;
         } finally { $s=$this->db->prepare('SELECT RELEASE_LOCK(?)'); $s->execute([$lock]); }
     }
+
+    /** Rebind an already moved tenant directory; never create a new identity or move files here. */
+    public function relocate(Actor $actor,int $tenant,string $path): void
+    {
+        $actor->requireOperator();
+        $lock='o8.storage.'.substr(hash('sha256',(string)$this->db->query('SELECT DATABASE()')->fetchColumn()),0,40);
+        $s=$this->db->prepare('SELECT GET_LOCK(?,0)'); $s->execute([$lock]);
+        if ((int)$s->fetchColumn()!==1) throw new \RuntimeException('Storage wird gerade geändert. Bitte erneut versuchen.');
+        $probe=null;
+        try {
+            $this->db->beginTransaction();
+            (new Access($this->db))->operator($actor);
+            $s=$this->db->prepare('SELECT * FROM tenants WHERE id=? AND active=1 FOR UPDATE'); $s->execute([$tenant]); $t=$s->fetch();
+            if (!$t) throw new \RuntimeException('Aktiver Mandant nicht verfügbar.');
+            $s=$this->db->prepare('SELECT 1 FROM platform_settings WHERE setting_key=?'); $s->execute(['tenant.delete.'.$tenant]);
+            if ($s->fetchColumn()) throw new \RuntimeException('Mandant wird gelöscht.');
+            $s=$this->db->prepare("SELECT * FROM storage_locations WHERE tenant_id=? AND storage_key='main' FOR UPDATE"); $s->execute([$tenant]); $old=$s->fetch();
+            if (!$old || !$old['identity_json']) throw new \RuntimeException('Keine geprüfte bisherige Ablage vorhanden. Zuerst regulär einrichten.');
+            $saved=json_decode($old['identity_json'],true);
+            if (!is_array($saved) || !is_string($saved['marker']??null) || !preg_match('/^[a-f0-9]{64}$/D',$saved['marker'])) throw new \RuntimeException('Gespeicherte Storage-Identität ist ungültig.');
+            $base=$this->base($path); $target=$base.'/'.$t['public_id'];
+            foreach ($this->db->query("SELECT s.root_path,t.public_id FROM storage_locations s JOIN tenants t ON t.id=s.tenant_id WHERE s.storage_key='main' AND s.tenant_id<>".(int)$tenant)->fetchAll() as $other) {
+                $otherTarget=rtrim($other['root_path'],'/').'/'.$other['public_id'];
+                if ($this->inside($target,$otherTarget) || $this->inside($otherTarget,$target)) throw new \RuntimeException('Ablage überschneidet sich mit einer bestehenden Mandantenablage.');
+            }
+            clearstatcache(true);
+            $marker=$target.'/.o8-storage';
+            if (is_link($target) || realpath($target)!==$target || !is_dir($target) || !is_readable($target) || !is_writable($target) || !is_executable($target)
+                || is_link($marker) || !is_file($marker) || !hash_equals($saved['marker'],(string)@file_get_contents($marker)))
+                throw new \RuntimeException('Ziel enthält nicht das geprüfte Mandantenverzeichnis samt unveränderter .o8-storage-Markierung. Keine Pfadänderung vorgenommen.');
+            [$uid,$gid]=$this->identities($old['linux_owner'],$old['linux_group']);
+            $dir=lstat($target); $mark=lstat($marker);
+            if (!$dir || !$mark || $dir['uid']!==$uid || $dir['gid']!==$gid || $mark['uid']!==$uid || $mark['gid']!==$gid)
+                throw new \RuntimeException('Besitzer oder Gruppe am Ziel stimmen nicht mit der geprüften Ablage überein.');
+            if (is_link($target.'/inbound')) throw new \RuntimeException('Eingangsverzeichnis am Ziel darf kein Symlink sein.');
+            foreach (['document_files','inbound_files'] as $table) {
+                $s=$this->db->prepare("SELECT relative_path,size_bytes FROM $table WHERE tenant_id=? AND storage_key='main'"); $s->execute([$tenant]);
+                while ($file=$s->fetch()) {
+                    $relative=$file['relative_path'];
+                    if (!preg_match('#^(?:inbound/)?[a-f0-9]{48}\.(?:pdf|jpg|png|json|txt)$#D',$relative)
+                        || is_link($target.'/'.$relative) || !is_file($target.'/'.$relative)
+                        || ($file['size_bytes']!==null && filesize($target.'/'.$relative)!==(int)$file['size_bytes']))
+                        throw new \RuntimeException('Mindestens eine verwaltete Datei fehlt am Ziel oder hat eine andere Größe. Keine Pfadänderung vorgenommen.');
+                }
+            }
+            $probe=$target.'/.probe-'.bin2hex(random_bytes(16)); $f=@fopen($probe,'x+b');
+            if (!$f) throw new \RuntimeException('Schreibtest am neuen Pfad fehlgeschlagen.');
+            try {
+                $payload=random_bytes(64);
+                if (fwrite($f,$payload)!==64 || !fflush($f) || !fsync($f)) throw new \RuntimeException('Schreibtest am neuen Pfad fehlgeschlagen.');
+                $this->permissions($probe,$old); rewind($f);
+                if (fread($f,64)!==$payload) throw new \RuntimeException('Lesetest am neuen Pfad fehlgeschlagen.');
+            } finally { fclose($f); }
+            if (!@rename($probe,$probe.'.renamed')) throw new \RuntimeException('Umbenennen am neuen Pfad fehlgeschlagen.');
+            $probe.='.renamed';
+            if (!@unlink($probe)) throw new \RuntimeException('Löschtest am neuen Pfad fehlgeschlagen.');
+            $probe=null;
+            $b=stat($base); $d=stat($target);
+            $identity=['base_dev'=>$b['dev'],'base_ino'=>$b['ino'],'tenant_dev'=>$d['dev'],'tenant_ino'=>$d['ino'],'marker'=>$saved['marker']];
+            $s=$this->db->prepare("UPDATE storage_locations SET root_path=?,identity_json=?,updated_at=UTC_TIMESTAMP() WHERE tenant_id=? AND storage_key='main'");
+            $s->execute([$base,json_encode($identity,JSON_THROW_ON_ERROR),$tenant]);
+            $s=$this->db->prepare("INSERT INTO platform_audit_events (operator_id,tenant_id,action) VALUES (?,?,'storage.relocated')"); $s->execute([$actor->id(),$tenant]);
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            if ($probe && is_file($probe)) @unlink($probe);
+            throw $e;
+        } finally { $s=$this->db->prepare('SELECT RELEASE_LOCK(?)'); $s->execute([$lock]); }
+    }
 }

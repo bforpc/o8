@@ -2,7 +2,7 @@
 declare(strict_types=1);
 namespace O8\License;
 
-// Reiner Offline-Prüfer für M2, noch keine HTTP-API oder Berechtigungsentscheidung.
+// Offline verification only; this class does not grant application permissions.
 final class LicenseVerifier
 {
     public static function decode(string $value): string

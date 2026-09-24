@@ -1,0 +1,26 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
+
+const source=readFileSync(new URL('../public/assets/js/live-workspace.js',import.meta.url),'utf8');
+const element=()=>({children:[],style:{},hidden:true,append(node){this.children.push(node);},replaceChildren(){this.children=[];},getBoundingClientRect(){return {width:180,height:80};}});
+const tooltip=element();
+const context=vm.createContext({tagsTooltip:tooltip,document:{createElement:element},innerWidth:800,innerHeight:600,state:{meta:{folders:[{id:1,name:'Versicherung',parent_id:null},{id:2,name:'Verträge <privat>',parent_id:1}]}}});
+vm.runInContext(source.slice(source.indexOf('function folderPath('),source.indexOf('function bulkFields(')),context);
+vm.runInContext(source.slice(source.indexOf('function showTagsTooltip('),source.indexOf("$('documentList').addEventListener('mouseover'")),context);
+const target=(folders,values)=>({classList:{contains:()=>folders},dataset:folders?{folderIds:JSON.stringify(values)}:{tagNames:JSON.stringify(values)},getBoundingClientRect:()=>({left:50,bottom:60})});
+context.target=target(true,[2,999]);
+vm.runInContext('showTagsTooltip(target)',context);
+assert.equal(tooltip.hidden,false);
+assert.equal(tooltip.children[0].textContent,'Ordnerverknüpfungen');
+assert.equal(tooltip.children[1].children.length,1);
+assert.equal(tooltip.children[1].children[0].textContent,'Versicherung / Verträge <privat>');
+context.target=target(false,['Rechnung','Bezahlt']);
+vm.runInContext('showTagsTooltip(target)',context);
+assert.equal(tooltip.children[0].textContent,'Tags');
+assert.equal(tooltip.children[1].children.length,2);
+context.target=target(true,[]);
+vm.runInContext('showTagsTooltip(target)',context);
+assert.equal(tooltip.hidden,true);
+assert.match(source,/closest\('\.doc-tag-count, \.doc-folder-count'\)/);
+assert.match(source,/data-folder-ids=/);

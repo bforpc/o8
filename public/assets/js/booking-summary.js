@@ -26,7 +26,7 @@ export function bookingSummary(proposal,{saved=false,accounts=[]}={}) {
     }).join('');
     const account=accounts.find(a=>String(a.id)===String(invoice.accountId));
     const taxes=(invoice.taxes||[]).map(row=>`${present(row.rate)?esc(row.rate)+' %':'Satz offen'}: ${amount(row.amount)}`).join(' · ');
-    return `<section class="booking-overview" aria-label="Buchungsübersicht"><span class="detail-label">BUCHUNGSÜBERSICHT${saved?' · GESPEICHERT':' · VORSCHLAG'}</span>
+    return `<section class="booking-overview" aria-label="Buchungsübersicht"><span class="detail-label">BUCHUNGSÜBERSICHT${saved?(invoice.mode==='partial'?' · UNVOLLSTÄNDIG GESPEICHERT':' · GESPEICHERT'):' · VORSCHLAG'}</span>
         <dl class="booking-overview-facts"><div><dt>Absender</dt><dd>${esc(invoice.sender||'–')}</dd></div><div><dt>Belegnummer</dt><dd>${esc(invoice.number||'–')}</dd></div><div><dt>Belegdatum</dt><dd>${esc(date(invoice.date))}</dd></div><div><dt>Konto</dt><dd>${esc(account?account.code+' · '+account.name:invoice.accountId?'#'+invoice.accountId:'Nicht zugeordnet')}</dd></div></dl>
         <table><caption class="visually-hidden">${saved?'Gespeicherte Buchungssummen':'KI-Werte und vorhandene oder berechnete Übernahmewerte'}</caption><thead><tr><th scope="col">Betrag</th>${comparison?'<th scope="col">KI-Original</th>':''}<th scope="col">${saved?'Gespeichert':'Zur Übernahme'}</th></tr></thead><tbody>${rows}</tbody></table>
         ${taxes?`<p class="small mb-1">MWSt: ${taxes}</p>`:''}

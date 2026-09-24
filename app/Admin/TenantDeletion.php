@@ -61,6 +61,9 @@ final class TenantDeletion
         return $this->transaction($actor,$id,function(array $tenant) use($actor,$id,$uuid,$name): array {
             if (!hash_equals($tenant['public_id'],$uuid) || !hash_equals($tenant['name'],$name)) throw new \RuntimeException('Mandant geändert oder Name falsch. Bitte beide Bestätigungen erneut durchführen.');
             if ($job=$this->job($actor,$id)) return $job;
+            $s=$this->db->prepare("SELECT JSON_UNQUOTE(JSON_EXTRACT(value_json,'$.tenant')) FROM platform_settings WHERE setting_key='trash.retention.pending'");
+            $s->execute();
+            if ((int)$s->fetchColumn()===$id) throw new \RuntimeException('Eine unterbrochene Papierkorb-Löschung muss zuerst durch den Papierkorb-Dienst abgeschlossen werden.');
             $this->checkSchema();
             $roots=$this->storagePlan($id,$uuid);
             $job=['uuid'=>$uuid,'phase'=>'files','root'=>0,'roots'=>$roots,'table'=>0,'files_removed'=>0,'rows_removed'=>0];

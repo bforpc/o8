@@ -35,7 +35,11 @@ final class AuthService
     }
     public function actor(?array $session): ?Actor
     {
-        if (!$session || time()-($session['since']??0)>28800 || !in_array($session['kind']??'',['operator','account'],true)) return null;
+        if (!$session || !in_array($session['kind']??'',['operator','account'],true)) return null;
+        if (isset($session['tenant_id'])) {
+            $last=(int)($session['last_activity']??$session['since']??0);
+            if ($last<1 || time()-$last>$this->sessionMinutes((int)$session['tenant_id'])*60) return null;
+        } elseif (time()-(int)($session['since']??0)>28800) return null;
         $table=$session['kind']==='operator'?'platform_operators':'accounts';
         $s=$this->db->prepare("SELECT * FROM $table WHERE id=? AND active=1 AND auth_version=?"); $s->execute([$session['id'],$session['auth_version']]); $account=$s->fetch();
         if (!$account) return null;
@@ -56,7 +60,30 @@ final class AuthService
     }
     private function context(array $session, array $member): array
     {
-        return array_merge($session,['tenant_id'=>(int)$member['tenant_id'],'membership_id'=>(int)$member['id'],'membership_version'=>(int)$member['auth_version'],'context_token'=>bin2hex(random_bytes(16))]);
+        return array_merge($session,['tenant_id'=>(int)$member['tenant_id'],'membership_id'=>(int)$member['id'],'membership_version'=>(int)$member['auth_version'],'context_token'=>bin2hex(random_bytes(16)),'last_activity'=>time()]);
+    }
+    public function sessionMinutes(int $tenantId): int
+    {
+        $s=$this->db->prepare("SELECT value_json FROM settings WHERE tenant_id=? AND setting_key='session.timeout_minutes'");
+        $s->execute([$tenantId]); $value=$s->fetchColumn();
+        if ($value===false) return 480;
+        $data=json_decode((string)$value,true);
+        $minutes=$data['minutes']??null;
+        return is_int($minutes) && $minutes>=5 && $minutes<=10080 ? $minutes : 480;
+    }
+    public function saveSessionMinutes(Actor $actor, string $value): void
+    {
+        $actor->requireAdmin();
+        if (!ctype_digit($value) || (int)$value<5 || (int)$value>10080) throw new \InvalidArgumentException('Sitzungsdauer muss zwischen 5 und 10080 Minuten liegen.');
+        $this->db->beginTransaction();
+        try {
+            (new Access($this->db))->tenant($actor);
+            $s=$this->db->prepare("INSERT INTO settings (tenant_id,setting_key,value_json,updated_by) VALUES (?,'session.timeout_minutes',?,?) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),updated_by=VALUES(updated_by),updated_at=UTC_TIMESTAMP()");
+            $s->execute([$actor->tenantId(),json_encode(['minutes'=>(int)$value],JSON_THROW_ON_ERROR),$actor->id()]);
+            $s=$this->db->prepare("INSERT INTO audit_events (tenant_id,actor_id,action,entity_type,entity_id) VALUES (?,?,'session.settings.updated','settings','session.timeout_minutes')");
+            $s->execute([$actor->tenantId(),$actor->id()]);
+            $this->db->commit();
+        } catch (\Throwable $error) { $this->db->rollBack(); throw $error; }
     }
     private function autoSelect(array $session, Actor $actor): array
     {

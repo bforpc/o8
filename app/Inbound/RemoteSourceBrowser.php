@@ -4,7 +4,7 @@ namespace O8\Inbound;
 
 use O8\Auth\Actor;
 
-/** Read-only remote inventory following the proven o7 list-before-fetch workflow. */
+/** Read-only remote inventory for selecting files before fetch. */
 final class RemoteSourceBrowser
 {
     public const MAX_MESSAGES=200;

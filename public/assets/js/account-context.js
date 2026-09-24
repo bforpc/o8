@@ -8,6 +8,19 @@ document.addEventListener('change', event => {
     if (event.target.closest('form') && !event.target.closest('[data-tenant-switch]')) dirty = true;
 });
 document.addEventListener('submit', async event => {
+    if (event.target.matches('[data-tag-delete]')) {
+        const form=event.target;
+        const confirmation=form.querySelector('input[name="confirm"]');
+        if (confirmation.value!=='yes') {
+            event.preventDefault();
+            const count=Number(form.dataset.tagCount), name=form.dataset.tagName;
+            const message=count===0?`Tag „${name}“ endgültig löschen? Es ist keinem Dokument zugeordnet.`:`Tag „${name}“ ist ${count} Dokument${count===1?'':'en'} zugeordnet. Beim Löschen wird dieses Tag von allen ${count} Dokument${count===1?'':'en'} entfernt. Fortfahren?`;
+            if (await confirmDialog('Tag endgültig löschen?',message,'Tag löschen',true)) {
+                confirmation.value='yes'; dirty=false; form.requestSubmit();
+            }
+            return;
+        }
+    }
     if (event.target.matches('[data-tenant-switch]') && dirty) {
         event.preventDefault();
         const form = event.target;

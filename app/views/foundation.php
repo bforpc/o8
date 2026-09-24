@@ -1,30 +1,34 @@
 <!doctype html>
-<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>o8 · Einrichtung und Anmeldung</title><link rel="stylesheet" href="<?= h($publicPath) ?>/assets/vendor/bootstrap/bootstrap.min.css"><link rel="stylesheet" href="<?= h($publicPath) ?>/assets/css/app.css?v=<?= h(filemtime(dirname(__DIR__,2).'/public/assets/css/app.css')) ?>"><link rel="stylesheet" href="<?= h($publicPath) ?>/assets/css/foundation.css?v=<?= h(filemtime(dirname(__DIR__,2).'/public/assets/css/foundation.css')) ?>"></head>
-<body class="foundation-page" data-bs-theme="light"><?php require __DIR__.'/icons.php'; ?>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>o8 · Einrichtung und Anmeldung</title><link rel="stylesheet" href="<?= h($publicPath) ?>/assets/vendor/bootstrap/bootstrap.min.css"><link rel="stylesheet" href="<?= h($publicPath) ?>/assets/css/app.css?v=<?= h(filemtime(dirname(__DIR__,2).'/public/assets/css/app.css')) ?>"><?php if ($section==='evaluation'): ?><link rel="stylesheet" href="<?= h($publicPath) ?>/assets/css/components.css?v=<?= h(filemtime(dirname(__DIR__,2).'/public/assets/css/components.css')) ?>"><?php endif ?><link rel="stylesheet" href="<?= h($publicPath) ?>/assets/css/foundation.css?v=<?= h(filemtime(dirname(__DIR__,2).'/public/assets/css/foundation.css')) ?>"></head>
+<body class="foundation-page"<?php if ($appearancePreferences!==null): ?> data-o8-preferences="<?= h(json_encode($appearancePreferences,JSON_THROW_ON_ERROR)) ?>" data-o8-context="<?= h($_SESSION['actor']['context_token']??'') ?>" data-o8-csrf="<?= h($_SESSION['csrf']) ?>"<?php endif ?>><?php require __DIR__.'/icons.php'; ?>
 <header class="app-header foundation-app-header">
     <a class="brand" href="?section=<?= $actor && $actor->kind==='tenant'?'documents':'choose' ?>"><span class="brand-mark">o<span>8</span></span></a>
     <div class="flex-grow-1 foundation-context"><strong><?= $actor ? 'Angemeldet als '.h($actor->row['display_name']) : 'o8 Dokumentenverwaltung' ?></strong><?php if ($actor && $actor->kind==='tenant'): ?><div class="small text-body-secondary">Mandant: <?= h($actor->row['tenant_name']) ?> · Rolle: <?= h($actor->row['role']) ?></div><?php endif ?></div>
     <?php if ($actor): ?><nav class="header-tools" aria-label="Hauptnavigation">
         <?php if ($actor->kind==='tenant'): ?>
             <a class="btn btn-surface <?= $section==='documents'?'is-current':'' ?>" href="?section=documents"><svg class="icon small-icon" aria-hidden="true"><use href="#i-document"/></svg> Dokumente</a>
-            <?php if ($actor->row['role']==='admin'): ?><a class="btn btn-surface <?= $section==='users'?'is-current':'' ?>" href="?section=users"><svg class="icon small-icon" aria-hidden="true"><use href="#i-mail"/></svg> Benutzer</a><?php endif ?>
+            <?php if ($actor->row['role']==='admin'): ?>
+            <a class="btn btn-surface <?= $section==='users'?'is-current':'' ?>" href="?section=users"><svg class="icon small-icon" aria-hidden="true"><use href="#i-mail"/></svg> Benutzer</a>
+            <a class="btn btn-surface <?= $section==='accounting'?'is-current':'' ?>" href="?section=accounting"><svg class="icon small-icon" aria-hidden="true"><use href="#i-settings"/></svg> Buchhaltung</a>
+            <a class="btn btn-surface <?= $section==='evaluation'?'is-current':'' ?>" href="?section=evaluation"><svg class="icon small-icon" aria-hidden="true"><use href="#i-chart"/></svg> Auswertung</a>
+            <?php endif ?>
         <?php elseif ($actor->kind==='operator'): ?>
             <a class="btn btn-surface <?= $section==='tenants'?'is-current':'' ?>" href="?section=tenants"><svg class="icon small-icon" aria-hidden="true"><use href="#i-folder"/></svg> Mandanten</a>
             <a class="btn btn-surface <?= $section==='storage'?'is-current':'' ?>" href="?section=storage"><svg class="icon small-icon" aria-hidden="true"><use href="#i-cloud"/></svg> Storage</a>
         <?php else: ?>
             <a class="btn btn-surface <?= $section==='choose'?'is-current':'' ?>" href="?section=choose"><svg class="icon small-icon" aria-hidden="true"><use href="#i-folder"/></svg> Mandant auswählen</a>
         <?php endif ?>
-        <details class="header-more"><summary class="btn btn-surface"><svg class="icon small-icon" aria-hidden="true"><use href="#i-menu"/></svg> Mehr</summary><div class="header-more-panel">
+        <details class="header-more"><summary class="btn btn-surface"><svg class="icon small-icon" aria-hidden="true"><use href="#i-menu"/></svg> Menü</summary><div class="header-more-panel">
             <?php if ($actor->kind==='tenant' && count($choices)>1): ?><form method="post" class="header-tenant-switch" data-tenant-switch><?php postFields('tenant_switch',''); ?><label for="foundationTenant">Mandant wechseln</label><select id="foundationTenant" name="tenant_id" class="form-select"><?php foreach ($choices as $choice): ?><option value="<?= h($choice['tenant_id']) ?>" <?= (int)$choice['tenant_id']===$actor->tenantId()?'selected':'' ?>><?= h($choice['name']) ?></option><?php endforeach ?></select><button class="btn btn-surface">Wechseln</button></form><?php elseif ($actor->kind==='tenant'): ?><a class="btn btn-surface" href="?section=choose"><svg class="icon small-icon" aria-hidden="true"><use href="#i-folder"/></svg> Mandant auswählen</a><?php endif ?>
+            <?php if ($actor->kind==='tenant'): ?><a class="btn btn-surface <?= $section==='settings'?'is-current':'' ?>" href="?section=settings"><svg class="icon small-icon" aria-hidden="true"><use href="#i-tag"/></svg> Einstellungen</a><?php endif ?>
             <a class="btn btn-surface <?= $section==='account'?'is-current':'' ?>" href="?section=account"><svg class="icon small-icon" aria-hidden="true"><use href="#i-info"/></svg> Mein Konto</a>
         </div></details>
         <button class="btn btn-surface icon-btn" id="foundationThemeToggle" type="button" aria-label="Hell / Dunkel" title="Hell / Dunkel"><svg class="icon small-icon" aria-hidden="true"><use href="#i-moon"/></svg></button>
         <form method="post"><?php postFields('logout',''); ?><button class="btn btn-surface" type="submit">Abmelden</button></form>
     </nav><?php endif ?>
-</header><main class="foundation-main"><div class="foundation-content">
+</header><main class="foundation-main <?= $section==='evaluation'?'evaluation-page':'' ?>"><div class="foundation-content">
 <header class="foundation-header">
-<h1>o8 <span class="fs-5 text-secondary">M2 · Anmeldung &amp; Verwaltung</span></h1>
-<p class="text-secondary">Benutzer, Mandanten und Dokumentablage verwalten.</p>
+<h1>o8</h1>
 </header>
 <?php if ($error): ?><div role="alert" class="alert alert-danger"><?= h($error) ?></div><?php endif ?>
 <?php if ($message): ?><div role="status" class="alert alert-success"><?= h($message) ?></div><?php endif ?>
@@ -62,11 +66,15 @@
 <label class="form-label d-block"><?= h($label) ?><input class="form-control" name="<?= h($key) ?>" type="<?= $key==='email'?'email':'text' ?>" required maxlength="<?= $key==='email'?254:190 ?>"></label>
 <?php endforeach ?><button class="btn btn-primary mt-2">Ersteinrichtung abschließen</button></form>
 <?php else: ?>
-<?php require __DIR__.'/admin-'.$section.'.php'; ?>
-<div class="alert alert-warning mt-4 mb-0">M2 · Prüfabschnitt: echte Testdokumente nach Storage-Zuweisung. Automatische Importe und weitere Eingangsquellen sind noch nicht freigeschaltet.</div>
+<?php
+if ($section === 'evaluation' && $actor->row['role'] === 'admin') {
+    require __DIR__.'/admin-evaluation.php';
+} else {
+    require __DIR__.'/admin-'.$section.'.php';
+}
+?>
 <?php endif ?>
 </div></section>
 <?php endif ?>
-<p class="mt-4"><a href="?demo=1">M1-Oberfläche ansehen (nur lokale Demo, keine echten Dokumente)</a></p>
-<script src="<?= h($publicPath) ?>/assets/vendor/bootstrap/bootstrap.bundle.min.js" defer></script><script type="module" src="<?= h($publicPath) ?>/assets/js/account-context.js?v=<?= h(filemtime(dirname(__DIR__,2).'/public/assets/js/account-context.js')) ?>"></script><script src="<?= h($publicPath) ?>/assets/js/foundation-theme.js?v=<?= h(filemtime(dirname(__DIR__,2).'/public/assets/js/foundation-theme.js')) ?>" defer></script>
+<script src="<?= h($publicPath) ?>/assets/vendor/bootstrap/bootstrap.bundle.min.js" defer></script><script type="module" src="<?= h($publicPath) ?>/assets/js/account-context.js?v=<?= h(filemtime(dirname(__DIR__,2).'/public/assets/js/account-context.js')) ?>"></script><script type="module" src="<?= h($publicPath) ?>/assets/js/foundation-theme.js?v=<?= h(filemtime(dirname(__DIR__,2).'/public/assets/js/foundation-theme.js')) ?>"></script>
 </div></main></body></html>

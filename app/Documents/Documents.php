@@ -98,13 +98,13 @@ final class Documents
         $doc['invoice']=$this->invoiceData($actor->tenantId(),$id);
         return $doc;
     }
-    /** The M1 accounting model is document-owned; it is never duplicated by folder links. */
+    /** Accounting belongs to the document, never to a folder link. */
     public function accounting(Actor $actor): array
     {
         (new Access($this->db))->tenant($actor);
         $s=$this->db->prepare('SELECT id,code,name FROM accounting_accounts WHERE tenant_id=? AND active=1 ORDER BY code,id'); $s->execute([$actor->tenantId()]); $accounts=$s->fetchAll();
         $s=$this->db->prepare('SELECT rate FROM accounting_vat_rates WHERE tenant_id=? AND active=1 ORDER BY rate'); $s->execute([$actor->tenantId()]); $rates=array_map(static fn($rate):string=>(string)(float)$rate,$s->fetchAll(\PDO::FETCH_COLUMN));
-        // The prepared M2 default is usable before the later settings section persists it.
+        // Defaults remain available until the tenant configures its own rates.
         return ['accounts'=>$accounts,'vatRates'=>$rates?:['7','19']];
     }
     /** Tenant-wide accounting catalogue. Only admins may change it. */
@@ -140,7 +140,7 @@ final class Documents
     {
         $s=$this->db->prepare('SELECT sender,invoice_number,invoice_date,entry_mode,account_id,currency,net,tax,gross FROM document_invoices WHERE tenant_id=? AND document_id=?'); $s->execute([$tenant,$id]); $invoice=$s->fetch();
         if (!$invoice) return null;
-        $invoice=['sender'=>$invoice['sender'],'number'=>$invoice['invoice_number'],'date'=>$invoice['invoice_date'],'mode'=>$invoice['entry_mode'],'accountId'=>$invoice['account_id']===null?'':(string)$invoice['account_id'],'currency'=>$invoice['currency'],'net'=>(string)$invoice['net'],'tax'=>(string)$invoice['tax'],'gross'=>(string)$invoice['gross'],'taxes'=>[],'items'=>[]];
+        $invoice=['sender'=>$invoice['sender'],'number'=>$invoice['invoice_number'],'date'=>$invoice['invoice_date'],'mode'=>$invoice['entry_mode'],'accountId'=>$invoice['account_id']===null?'':(string)$invoice['account_id'],'currency'=>$invoice['currency'],'net'=>$invoice['net']===null?null:(string)$invoice['net'],'tax'=>$invoice['tax']===null?null:(string)$invoice['tax'],'gross'=>$invoice['gross']===null?null:(string)$invoice['gross'],'taxes'=>[],'items'=>[]];
         $s=$this->db->prepare('SELECT tax_rate,tax FROM invoice_tax_totals WHERE tenant_id=? AND document_id=? ORDER BY tax_rate'); $s->execute([$tenant,$id]); foreach ($s->fetchAll() as $row) $invoice['taxes'][]=['rate'=>(string)(float)$row['tax_rate'],'amount'=>(string)$row['tax']];
         $s=$this->db->prepare('SELECT description,quantity,unit_net,unit_gross,price_basis,account_id,tax_rate FROM invoice_items WHERE tenant_id=? AND document_id=? ORDER BY position_number'); $s->execute([$tenant,$id]); foreach ($s->fetchAll() as $row) $invoice['items'][]=['description'=>$row['description'],'quantity'=>(string)$row['quantity'],'unitNet'=>(string)$row['unit_net'],'unitGross'=>(string)$row['unit_gross'],'priceBasis'=>$row['price_basis'],'accountId'=>$row['account_id']===null?'':(string)$row['account_id'],'vatRate'=>(string)(float)$row['tax_rate']];
         return $invoice;
@@ -192,6 +192,34 @@ final class Documents
             $s=$this->db->prepare('DELETE FROM invoice_items WHERE tenant_id=? AND document_id=?'); $s->execute([$actor->tenantId(),$id]); $s=$this->db->prepare('INSERT INTO invoice_items (tenant_id,document_id,position_number,description,quantity,unit_net,unit_gross,price_basis,account_id,tax_rate,net,tax,gross) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'); foreach ($savedItems as $item) $s->execute([$actor->tenantId(),$id,...$item]);
             $s=$this->db->prepare('DELETE FROM invoice_tax_totals WHERE tenant_id=? AND document_id=?'); $s->execute([$actor->tenantId(),$id]); $s=$this->db->prepare('INSERT INTO invoice_tax_totals (tenant_id,document_id,tax_rate,tax) VALUES (?,?,?,?)'); foreach ($taxTotals as $rate=>$value) $s->execute([$actor->tenantId(),$id,$this->decimal((int)$rate,2),$this->decimal($value,$digits)]);
             $this->audit($actor,$id,'document.invoice.updated');
+        });
+    }
+    /** Preserve known inbound amounts without treating unknown net/tax values as zero. */
+    public function savePartialInvoice(Actor $actor,int $id,int $revision,array $input): void
+    {
+        $this->transaction($actor,function() use($actor,$id,$revision,$input): void {
+            $doc=$this->get($actor,$id); if ($doc['deleted_at']) throw new \RuntimeException('Dokument zuerst wiederherstellen.');
+            $sender=trim((string)($input['sender']??'')); $number=trim((string)($input['number']??''));
+            if (mb_strlen($sender)>255 || mb_strlen($number)>255) throw new \RuntimeException('Buchungsfeld zu lang.');
+            $date=$this->date((string)($input['date']??''));
+            $currency=(string)($input['currency']??'EUR'); $digits=$this->currencyDigits($currency);
+            $account=$input['accountId']??'';
+            if (!is_scalar($account) || ($account!=='' && (!ctype_digit((string)$account) || (int)$account<1))) throw new \RuntimeException('Ungültiges Buchungskonto.');
+            $account=$account===''?null:(int)$account; $this->accountingIds($actor->tenantId(),[$account]);
+            $amounts=[];
+            foreach (['net','tax','gross'] as $field) {
+                $raw=$input[$field]??null;
+                if ($raw===null || $raw==='') { $amounts[$field]=null; continue; }
+                if (!is_scalar($raw)) throw new \RuntimeException('Ungültiger KI-Betrag.');
+                $amounts[$field]=$this->decimal($this->money((string)$raw,$digits,ucfirst($field)),$digits);
+            }
+            if (count(array_filter($amounts,static fn($value)=>$value!==null))===0) throw new \RuntimeException('Mindestens ein Buchungsbetrag ist erforderlich.');
+            $s=$this->db->prepare('UPDATE documents SET revision=revision+1 WHERE tenant_id=? AND id=? AND revision=?');
+            $s->execute([$actor->tenantId(),$id,$revision]);
+            if ($s->rowCount()!==1) throw new \RuntimeException('Dokument wurde zwischenzeitlich geändert. Bitte neu laden.');
+            $s=$this->db->prepare("INSERT INTO document_invoices (tenant_id,document_id,sender,invoice_number,invoice_date,entry_mode,account_id,currency,net,tax,gross) VALUES (?,?,?,?,?,'partial',?,?,?,?,?) ON DUPLICATE KEY UPDATE sender=VALUES(sender),invoice_number=VALUES(invoice_number),invoice_date=VALUES(invoice_date),entry_mode=VALUES(entry_mode),account_id=VALUES(account_id),currency=VALUES(currency),net=VALUES(net),tax=VALUES(tax),gross=VALUES(gross)");
+            $s->execute([$actor->tenantId(),$id,$sender,$number,$date,$account,$currency,$amounts['net'],$amounts['tax'],$amounts['gross']]);
+            $this->audit($actor,$id,'document.invoice.partial');
         });
     }
     /** Shared read-only validation for booking writes and entrance preflight. */
@@ -347,6 +375,26 @@ final class Documents
             foreach ($tags as $tag) if (!(is_int($tag) || is_string($tag)) || !ctype_digit((string)$tag) || (int)$tag<1) throw new \RuntimeException('Ungültige Tag-ID.');
             $tags=array_values(array_unique(array_map('intval',$tags)));
             foreach ($tags as $tag) { $s=$this->db->prepare('SELECT 1 FROM tags WHERE tenant_id=? AND id=? AND active=1'); $s->execute([$actor->tenantId(),$tag]); if (!$s->fetchColumn()) throw new \RuntimeException('Tag nicht verfügbar.'); }
+            $newTags=$input['newTags']??[];
+            if (!is_array($newTags) || count($newTags)>20 || count($tags)+count($newTags)>100) throw new \RuntimeException('Ungültige neue Tags.');
+            $seen=[];
+            foreach ($newTags as $newTag) {
+                if (!is_string($newTag)) throw new \RuntimeException('Ungültiger Tagname.');
+                $name=trim($newTag); $normalized=mb_strtolower($name);
+                if ($name==='' || mb_strlen($name)>190 || isset($seen[$normalized])) throw new \RuntimeException('Ungültiger oder mehrfacher neuer Tagname.');
+                $seen[$normalized]=true;
+                $insert=$this->db->prepare('INSERT INTO tags (tenant_id,name,normalized_name) VALUES (?,?,?) ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)');
+                $insert->execute([$actor->tenantId(),$name,$normalized]);
+                $tagId=(int)$this->db->lastInsertId();
+                $check=$this->db->prepare('SELECT active FROM tags WHERE tenant_id=? AND id=?'); $check->execute([$actor->tenantId(),$tagId]);
+                if (!(bool)$check->fetchColumn()) throw new \RuntimeException('Dieser Tag ist deaktiviert. Bitte die Tag-Verwaltung prüfen.');
+                if ($insert->rowCount()===1) {
+                    $audit=$this->db->prepare("INSERT INTO audit_events (tenant_id,actor_id,action,entity_type,entity_id) VALUES (?,?,'tag.created','tag',?)");
+                    $audit->execute([$actor->tenantId(),$actor->id(),(string)$tagId]);
+                }
+                $tags[]=$tagId;
+            }
+            $tags=array_values(array_unique($tags));
             $s=$this->db->prepare('UPDATE documents SET title=?,sender=?,reference=?,document_date=?,memo=?,document_type=?,expired=?,searchable=?,in_inbox=0,revision=revision+1 WHERE tenant_id=? AND id=? AND revision=?');
             $s->execute([$title,$sender,$reference,$this->date((string)($input['date']??'')),$memo,$type,($input['expired']??'')==='1'?1:0,($input['notSearchable']??'')==='1'?0:1,$actor->tenantId(),$id,$revision]);
             if ($s->rowCount()!==1) throw new \RuntimeException('Dokument wurde zwischenzeitlich geändert. Neu laden; nichts überschrieben.');
@@ -454,17 +502,51 @@ final class Documents
         }
         return $result;
     }
-    public function folderWrite(Actor $actor,string $action,int $id,string $name,?int $parentId=null): void
+    public function folderDeletePreview(Actor $actor,int $id): array
     {
-        $this->transaction($actor,function() use($actor,$action,$id,$name,$parentId): void {
+        (new Access($this->db))->tenant($actor);
+        return $this->folderDeletePlan($actor,$id);
+    }
+    private function folderDeletePlan(Actor $actor,int $id): array
+    {
+        $selected=$this->folder($actor,$id);
+        $s=$this->db->prepare('SELECT id,parent_id,owner_id,name FROM folders WHERE tenant_id=? ORDER BY id');
+        $s->execute([$actor->tenantId()]); $children=[]; $rows=[];
+        foreach ($s->fetchAll() as $row) { $folderId=(int)$row['id']; $rows[$folderId]=$row; if ($row['parent_id']!==null) $children[(int)$row['parent_id']][]=$folderId; }
+        $ids=[]; $queue=[$id]; $seen=[]; $structure=[];
+        for ($cursor=0; $cursor<count($queue); ++$cursor) {
+            $current=$queue[$cursor];
+            if (isset($seen[$current])) throw new \RuntimeException('Ordnerstruktur ist zyklisch. Löschung angehalten.');
+            $seen[$current]=true;
+            if (!isset($rows[$current])) throw new \RuntimeException('Ordnerstruktur wurde geändert. Bitte neu laden.');
+            if ($actor->row['role']!=='admin' && (int)$rows[$current]['owner_id']!==$actor->id()) throw new \RuntimeException('Ein Unterordner gehört einem anderen Benutzer. Bitte einen Admin bitten, diesen Ordner zu löschen.');
+            $ids[]=$current; $structure[]=[$current,$rows[$current]['parent_id'],$rows[$current]['name']]; array_push($queue,...($children[$current]??[]));
+        }
+        $links=[]; $documents=[];
+        foreach (array_chunk($ids,500) as $part) {
+            $marks=implode(',',array_fill(0,count($part),'?'));
+            $s=$this->db->prepare("SELECT fd.folder_id,fd.document_id,d.owner_id FROM folder_documents fd JOIN documents d ON d.tenant_id=fd.tenant_id AND d.id=fd.document_id WHERE fd.tenant_id=? AND fd.folder_id IN ($marks) ORDER BY fd.folder_id,fd.document_id");
+            $s->execute([$actor->tenantId(),...$part]);
+            foreach ($s->fetchAll() as $row) {
+                if ($actor->row['role']!=='admin' && (int)$row['owner_id']!==$actor->id()) throw new \RuntimeException('Der Ordner enthält ein Dokument eines anderen Benutzers. Bitte einen Admin bitten, ihn zu löschen.');
+                $documentId=(int)$row['document_id']; $documents[$documentId]=true; $links[]=[(int)$row['folder_id'],$documentId];
+            }
+        }
+        return ['name'=>$selected['name'],'folders'=>count($ids)-1,'documents'=>count($documents),'fingerprint'=>hash('sha256',json_encode([$structure,$links],JSON_THROW_ON_ERROR)),'ids'=>$ids,'documentIds'=>array_keys($documents)];
+    }
+    public function folderWrite(Actor $actor,string $action,int $id,string $name,?int $parentId=null,?string $expectedFingerprint=null): void
+    {
+        $this->transaction($actor,function() use($actor,$action,$id,$name,$parentId,$expectedFingerprint): void {
             if ($action!=='create') $this->folder($actor,$id);
             $name=trim($name);
             if ($action==='delete') {
-                $s=$this->db->prepare('SELECT 1 FROM folder_documents fd JOIN documents d ON d.tenant_id=fd.tenant_id AND d.id=fd.document_id WHERE fd.tenant_id=? AND fd.folder_id=? AND d.deleted_at IS NULL LIMIT 1'); $s->execute([$actor->tenantId(),$id]);
-                if ($s->fetchColumn()) throw new \RuntimeException('Ordner enthält aktive Dokumente.');
-                $s=$this->db->prepare('SELECT 1 FROM folders WHERE tenant_id=? AND parent_id=? LIMIT 1'); $s->execute([$actor->tenantId(),$id]);
-                if ($s->fetchColumn()) throw new \RuntimeException('Ordner enthält Unterordner.');
-                $s=$this->db->prepare('DELETE FROM folders WHERE tenant_id=? AND id=?'); $s->execute([$actor->tenantId(),$id]);
+                $plan=$this->folderDeletePlan($actor,$id);
+                if ($expectedFingerprint!==null && !hash_equals($plan['fingerprint'],$expectedFingerprint)) throw new \RuntimeException('Ordnerinhalt hat sich seit der Rückfrage geändert. Bitte erneut prüfen und bestätigen.');
+                $revision=$this->db->prepare('UPDATE documents SET revision=revision+1 WHERE tenant_id=? AND id=?');
+                foreach ($plan['documentIds'] as $documentId) $revision->execute([$actor->tenantId(),$documentId]);
+                $unlink=$this->db->prepare('DELETE FROM folder_documents WHERE tenant_id=? AND folder_id=?');
+                $delete=$this->db->prepare('DELETE FROM folders WHERE tenant_id=? AND id=?');
+                foreach (array_reverse($plan['ids']) as $folderId) { $unlink->execute([$actor->tenantId(),$folderId]); $delete->execute([$actor->tenantId(),$folderId]); }
             } else {
                 if (!in_array($action,['create','rename','move'],true) || $name==='' || mb_strlen($name)>190) throw new \RuntimeException('Gültigen Ordnernamen angeben (maximal 190 Zeichen).');
                 $effectiveParent=$parentId;
@@ -483,7 +565,8 @@ final class Documents
                 elseif ($action==='move') { $s=$this->db->prepare('UPDATE folders SET parent_id=?,name=? WHERE tenant_id=? AND id=?'); $s->execute([$effectiveParent,$name,$actor->tenantId(),$id]); }
                 else { $s=$this->db->prepare('UPDATE folders SET name=? WHERE tenant_id=? AND id=?'); $s->execute([$name,$actor->tenantId(),$id]); }
             }
-            $s=$this->db->prepare("INSERT INTO audit_events (tenant_id,actor_id,action,entity_type,entity_id) VALUES (?,?,?,'folder',?)"); $s->execute([$actor->tenantId(),$actor->id(),'folder.'.$action,(string)$id]);
+            $s=$this->db->prepare("INSERT INTO audit_events (tenant_id,actor_id,action,entity_type,entity_id,details_json) VALUES (?,?,?,'folder',?,?)");
+            $s->execute([$actor->tenantId(),$actor->id(),'folder.'.$action,(string)$id,$action==='delete'?json_encode(['subfolders'=>$plan['folders'],'documents'=>$plan['documents']],JSON_THROW_ON_ERROR):null]);
         });
     }
     public function link(Actor $actor,int $id,int $revision,int $folder,bool $remove): void
@@ -596,14 +679,99 @@ final class Documents
     {
         (new Access($this->db))->tenant($actor); $s=$this->db->prepare('SELECT id,name FROM tags WHERE tenant_id=? AND active=1 ORDER BY name,id'); $s->execute([$actor->tenantId()]); return $s->fetchAll();
     }
+    public function tagCatalogue(Actor $actor,string $query=''): array
+    {
+        (new Access($this->db))->tenant($actor);
+        $query=trim($query); if (mb_strlen($query)>190) throw new \RuntimeException('Tagsuche ist zu lang.');
+        $s=$this->db->prepare('SELECT t.id,t.name,t.active,COUNT(dt.document_id) AS document_count,COALESCE(SUM(CASE WHEN d.owner_id<>? THEN 1 ELSE 0 END),0) AS foreign_count FROM tags t LEFT JOIN document_tags dt ON dt.tenant_id=t.tenant_id AND dt.tag_id=t.id LEFT JOIN documents d ON d.tenant_id=dt.tenant_id AND d.id=dt.document_id WHERE t.tenant_id=? AND (?="" OR LOCATE(?,t.name COLLATE utf8mb4_unicode_ci)>0) GROUP BY t.id,t.name,t.active ORDER BY t.name,t.id LIMIT 500');
+        $s->execute([$actor->id(),$actor->tenantId(),$query,$query]); $tags=$s->fetchAll();
+        if ($actor->row['role']==='admin') { foreach ($tags as &$tag) $tag['manageable']=true; unset($tag); return $tags; }
+        $sources=$this->tagSources($actor->tenantId());
+        foreach ($tags as &$tag) {
+            $foreign=(int)$tag['foreign_count']; $tag['document_count']=(int)$tag['document_count']-$foreign;
+            $tag['manageable']=$foreign===0 && !$this->tagInForeignSource($sources,(int)$tag['id'],$actor->id());
+        }
+        unset($tag); return $tags;
+    }
     public function createTag(Actor $actor,string $name): void
     {
-        $actor->requireAdmin(); $name=trim($name);
-        if ($name==='' || mb_strlen($name)>190) throw new \RuntimeException('Tagname erforderlich, maximal 190 Zeichen.');
-        $this->transaction($actor,function() use($actor,$name): void {
-            $s=$this->db->prepare('INSERT INTO tags (tenant_id,name,normalized_name) VALUES (?,?,?)'); $s->execute([$actor->tenantId(),$name,mb_strtolower($name)]);
-            $s=$this->db->prepare("INSERT INTO audit_events (tenant_id,actor_id,action,entity_type,entity_id) VALUES (?,?,'tag.created','tag',?)"); $s->execute([$actor->tenantId(),$actor->id(),(string)$this->db->lastInsertId()]);
+        $name=trim($name);
+        if ($name==='' || mb_strlen($name)>190 || preg_match('/[\x00-\x1f\x7f]/u',$name)) throw new \RuntimeException('Tagname erforderlich, maximal 190 Zeichen.');
+        try {
+            $this->transaction($actor,function() use($actor,$name): void {
+                $s=$this->db->prepare('INSERT INTO tags (tenant_id,name,normalized_name) VALUES (?,?,?)'); $s->execute([$actor->tenantId(),$name,mb_strtolower($name)]);
+                $s=$this->db->prepare("INSERT INTO audit_events (tenant_id,actor_id,action,entity_type,entity_id) VALUES (?,?,'tag.created','tag',?)"); $s->execute([$actor->tenantId(),$actor->id(),(string)$this->db->lastInsertId()]);
+            });
+        } catch (\PDOException $error) { if (($error->errorInfo[1]??null)===1062) throw new \RuntimeException('Ein Tag mit diesem Namen existiert bereits.'); throw $error; }
+    }
+    public function renameTag(Actor $actor,int $id,string $name): void
+    {
+        $name=trim($name);
+        if ($id<1 || $name==='' || mb_strlen($name)>190 || preg_match('/[\x00-\x1f\x7f]/u',$name)) throw new \RuntimeException('Tagname fehlt oder ist ungültig.');
+        try {
+            $this->transaction($actor,function() use($actor,$id,$name): void {
+                $this->assertTagManageable($actor,$id);
+                $s=$this->db->prepare('UPDATE tags SET name=?,normalized_name=? WHERE tenant_id=? AND id=?');
+                $s->execute([$name,mb_strtolower($name),$actor->tenantId(),$id]);
+                if ($s->rowCount()===0) {
+                    $s=$this->db->prepare('SELECT 1 FROM tags WHERE tenant_id=? AND id=?'); $s->execute([$actor->tenantId(),$id]);
+                    if (!$s->fetchColumn()) throw new \RuntimeException('Tag nicht verfügbar.');
+                }
+                $s=$this->db->prepare("INSERT INTO audit_events (tenant_id,actor_id,action,entity_type,entity_id) VALUES (?,?,'tag.renamed','tag',?)");
+                $s->execute([$actor->tenantId(),$actor->id(),(string)$id]);
+            });
+        } catch (\PDOException $error) { if (($error->errorInfo[1]??null)===1062) throw new \RuntimeException('Ein Tag mit diesem Namen existiert bereits.'); throw $error; }
+    }
+    public function deleteTag(Actor $actor,int $id,int $expectedDocuments): int
+    {
+        if ($id<1 || $expectedDocuments<0) throw new \RuntimeException('Ungültige Tag-Auswahl.');
+        return $this->transaction($actor,function() use($actor,$id,$expectedDocuments): int {
+            $s=$this->db->prepare('SELECT id FROM tags WHERE tenant_id=? AND id=? FOR UPDATE'); $s->execute([$actor->tenantId(),$id]);
+            if (!$s->fetchColumn()) throw new \RuntimeException('Tag nicht verfügbar.');
+            $this->assertTagManageable($actor,$id);
+            $s=$this->db->prepare('SELECT COUNT(*) FROM document_tags WHERE tenant_id=? AND tag_id=?'); $s->execute([$actor->tenantId(),$id]);
+            $count=(int)$s->fetchColumn(); if ($count!==$expectedDocuments) throw new \RuntimeException('Die Anzahl betroffener Dokumente hat sich geändert. Bitte Liste neu laden und erneut bestätigen.');
+            $s=$this->db->prepare('SELECT id,config_json FROM import_sources WHERE tenant_id=? FOR UPDATE'); $s->execute([$actor->tenantId()]);
+            $sources=$s->fetchAll();
+            foreach ($sources as $source) {
+                $config=json_decode((string)$source['config_json'],true,32,JSON_THROW_ON_ERROR);
+                if (!is_array($config)) throw new \RuntimeException('Quellenkonfiguration ist beschädigt.');
+                $selected=$config['acceptance']['tags']??[];
+                if (!is_array($selected) || !in_array($id,array_map('intval',$selected),true)) continue;
+                $config['acceptance']['tags']=array_values(array_filter($selected,static fn($tag)=>(int)$tag!==$id));
+                $update=$this->db->prepare('UPDATE import_sources SET config_json=?,revision=revision+1 WHERE tenant_id=? AND id=?');
+                $update->execute([json_encode($config,JSON_THROW_ON_ERROR),$actor->tenantId(),$source['id']]);
+            }
+            $s=$this->db->prepare('UPDATE documents d JOIN document_tags dt ON dt.tenant_id=d.tenant_id AND dt.document_id=d.id SET d.revision=d.revision+1 WHERE dt.tenant_id=? AND dt.tag_id=?');
+            $s->execute([$actor->tenantId(),$id]);
+            $s=$this->db->prepare('DELETE FROM document_tags WHERE tenant_id=? AND tag_id=?'); $s->execute([$actor->tenantId(),$id]);
+            $s=$this->db->prepare('DELETE FROM tags WHERE tenant_id=? AND id=?'); $s->execute([$actor->tenantId(),$id]);
+            $s=$this->db->prepare("INSERT INTO audit_events (tenant_id,actor_id,action,entity_type,entity_id,details_json) VALUES (?,?,'tag.deleted','tag',?,?)");
+            $s->execute([$actor->tenantId(),$actor->id(),(string)$id,json_encode(['documents'=>$count],JSON_THROW_ON_ERROR)]);
+            return $count;
         });
+    }
+    private function tagSources(int $tenantId): array
+    {
+        $s=$this->db->prepare('SELECT owner_id,config_json FROM import_sources WHERE tenant_id=?');
+        $s->execute([$tenantId]); return $s->fetchAll();
+    }
+    private function tagInForeignSource(array $sources,int $tagId,int $ownerId): bool
+    {
+        foreach ($sources as $source) {
+            if ((int)$source['owner_id']===$ownerId) continue;
+            $config=json_decode((string)$source['config_json'],true);
+            $selected=$config['acceptance']['tags']??[];
+            if (is_array($selected) && in_array($tagId,array_map('intval',$selected),true)) return true;
+        }
+        return false;
+    }
+    private function assertTagManageable(Actor $actor,int $tagId): void
+    {
+        if ($actor->row['role']==='admin') return;
+        $s=$this->db->prepare('SELECT COUNT(*) FROM document_tags dt JOIN documents d ON d.tenant_id=dt.tenant_id AND d.id=dt.document_id WHERE dt.tenant_id=? AND dt.tag_id=? AND d.owner_id<>?');
+        $s->execute([$actor->tenantId(),$tagId,$actor->id()]);
+        if ((int)$s->fetchColumn()>0 || $this->tagInForeignSource($this->tagSources($actor->tenantId()),$tagId,$actor->id())) throw new \RuntimeException('Dieses Tag wird von anderen Benutzern verwendet. Nur ein Admin kann es umbenennen oder löschen.');
     }
     public function preferences(Actor $actor,?array $input=null): array
     {

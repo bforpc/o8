@@ -4,7 +4,7 @@ Stand: 17. September 2026
 
 ## Geltungsbereich
 
-Die nachstehenden Fremdkomponenten unterliegen ihren eigenen Lizenzen. Die [o8 Community License](LICENSE-o8.md) schränkt die dadurch eingeräumten Rechte nicht ein (siehe deren Ziffer 6). Diese Datei erteilt keine zusätzlichen Rechte am eigenen o8-Code. Prüfumfang: die aktuell im o8-Projekt enthaltenen Dateien, nicht sämtliche für spätere Meilensteine geplanten Abhängigkeiten.
+Die nachstehenden Fremdkomponenten unterliegen ihren eigenen Lizenzen. Die [o8 Community License](LICENSE-o8.md) schränkt die dadurch eingeräumten Rechte nicht ein (siehe deren Ziffer 6). Diese Datei erteilt keine zusätzlichen Rechte am eigenen o8-Code. Prüfumfang: die aktuell im o8-Projekt enthaltenen Dateien.
 
 Diese Hinweise und die vollständigen Lizenztexte sind zusammen mit den betreffenden Komponenten weiterzugeben. Vorhandene Lizenz- und Copyright-Hinweise in den Originaldateien bleiben erhalten, auch bei Minifizierung oder Bündelung.
 
@@ -25,14 +25,14 @@ Betroffene Dateien:
 - `public/assets/vendor/bootstrap/bootstrap.bundle.min.js`
 - `public/assets/vendor/bootstrap/bootstrap.bundle.min.js.map`
 
-Die Einbindung erfolgt in `app/views/workspace.php`.
+Die Einbindung erfolgt in `app/views/live-workspace.php` und den Verwaltungsansichten.
 
 ### Herkunftsnachweis der Bootstrap-Dateien
 
 Alle vier lokalen Dateien wurden am 17. September 2026 bytegenau gegen
 [`twbs/bootstrap`, Tag `v5.3.8`, Verzeichnis `dist/`](https://github.com/twbs/bootstrap/tree/v5.3.8/dist)
-verglichen und stimmen überein. Der lokale Übernahmeweg war die Bootstrap-Kopie
-im o7-Referenzprojekt; die Zuordnung zum offiziellen Release wurde unabhängig davon geprüft.
+verglichen und stimmen überein. Die Zuordnung zum offiziellen Release wurde
+anhand der ausgelieferten Dateien geprüft.
 Das [Release-Lockfile](https://github.com/twbs/bootstrap/blob/v5.3.8/package-lock.json)
 weist für `node_modules/@popperjs/core` Version 2.11.8 aus. Dies ist ein abgeleiteter
 Versionsnachweis aus Release und Lockfile, keine eigenständige Versionsangabe im Bundle.
@@ -63,7 +63,7 @@ Nur abschließende Leerzeichen/Zeilenumbrüche der gespeicherten Textdateien wur
 auf einen abschließenden Zeilenumbruch vereinheitlicht.
 
 Die 21 Feather-SVG-Inhalte werden geometrisch unverändert in `app/views/icons.php`
-als `<symbol>` eingebettet; `app/views/workspace.php` bindet diese Datei ein.
+als `<symbol>` eingebettet; `app/views/live-workspace.php` bindet diese Datei ein.
 Angepasst sind ausschließlich die äußeren SVG-Wrapper, lokale IDs und die Darstellung
 von Größe/Strichstärke über die bestehende o8-CSS-Klasse. Kein Feather-JavaScript,
 kein CDN und keine Icon-Schrift werden verwendet.
@@ -118,7 +118,6 @@ Dateiprüfsummen, Lizenztext-Zuordnung, Symbolgeometrie und Vollständigkeit all
 
 - Eine jQuery-Einbindung oder mitgelieferte jQuery-Bibliothek wurde im geprüften Archiv nicht gefunden. Die optionale jQuery-Unterstützung im Bootstrap-Code stellt keine mitgelieferte jQuery-Kopie dar.
 - Es werden lokale Systemschriften verwendet; zusätzliche Fontdateien oder externe Font-Einbindungen wurden nicht gefunden.
-- Der lokale Symlink `o7/` ist eine Entwicklungsreferenz und keine o8-Laufzeitabhängigkeit. Nicht als Verzeichnisinhalt dereferenzieren oder mit veröffentlichen; ein separat mitgeliefertes o7 benötigt eine eigene vollständige Lizenzinventur.
 - Die Python-Browsertests importieren Playwright. Das Playwright-Paket und Browser-Binärdateien sind nicht im Archiv enthalten; eine installierte Version ist nicht festgelegt. Playwright for Python steht unter Apache-2.0, siehe [Projekt](https://github.com/microsoft/playwright-python). Bei einer späteren Mitlieferung sind die Lizenz- und gegebenenfalls NOTICE-Dateien der konkret ausgelieferten Pakete und Browser zu ergänzen.
 - PHP, Python und Node.js werden als separat installierte Laufzeitumgebungen verwendet und sind nicht Bestandteil dieses Archivs.
 - Bei Änderungen an Abhängigkeiten, Source Maps oder ausgelieferten Paketen ist diese Datei zu aktualisieren.

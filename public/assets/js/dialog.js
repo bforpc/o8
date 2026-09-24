@@ -17,7 +17,7 @@ function once(target, name) {
     return new Promise(resolve => target.addEventListener(name, resolve, {once:true}));
 }
 
-async function ask({title, message, label, destructive = false, input = false, confirmValue = true, alternative = null}) {
+async function ask({title, message, label, destructive = false, input = false, confirmValue = true, alternative = null, cancelLabel = 'Abbrechen'}) {
     if (busy) return input ? null : false;
     busy = true;
     const modal = element();
@@ -29,6 +29,7 @@ async function ask({title, message, label, destructive = false, input = false, c
     }
     modal.querySelector('#o8ActionDialogTitle').textContent = title;
     modal.querySelector('#o8ActionDialogMessage').textContent = message;
+    modal.querySelector('.modal-footer [data-bs-dismiss="modal"]').textContent = cancelLabel;
     const field = modal.querySelector('#o8ActionDialogInput');
     field.value = '';
     field.disabled = !input;
@@ -70,6 +71,6 @@ async function ask({title, message, label, destructive = false, input = false, c
     return answer;
 }
 
-export const confirmDialog = (title, message, label = 'Bestätigen', destructive = false) => ask({title,message,label,destructive});
+export const confirmDialog = (title, message, label = 'Bestätigen', destructive = false, cancelLabel = 'Abbrechen') => ask({title,message,label,destructive,cancelLabel});
 export const inputDialog = (title, message, label = 'Anlegen') => ask({title,message,label,input:true});
 export const choiceDialog = (title, message, primaryLabel, primaryValue, alternativeLabel, alternativeValue) => ask({title,message,label:primaryLabel,confirmValue:primaryValue,alternative:{label:alternativeLabel,value:alternativeValue}});

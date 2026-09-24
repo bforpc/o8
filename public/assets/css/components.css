@@ -1,5 +1,5 @@
 .document-review-modal { --review-space: 1rem; }
-.document-review-modal .modal-dialog { width: calc(100% - 2rem); max-width: none; height: calc(100dvh - 2rem); margin: 1rem auto; }
+.document-review-modal .modal-dialog { width: calc(100% - 2rem); max-width: 900px; height: calc(100dvh - 2rem); margin: 1rem auto; }
 .document-review-modal .modal-content { height: 100%; }
 .document-review-modal .modal-header, .document-review-modal .modal-footer { padding: var(--review-space); gap: .75rem; }
 .document-review-modal .modal-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: var(--review-space); padding: var(--review-space); min-height: 0; overflow: hidden; }
@@ -35,6 +35,11 @@
 .accept-folder-tree label span { color: var(--o8-text); font-size: .75rem; overflow-wrap: anywhere; }
 .accept-folder-tree input { flex-shrink: 0; margin: 0; }
 .accept-tag-comparison { display: grid; gap: .65rem; }
+.accept-tag-info { margin-bottom: 9px; }
+.accept-tag-info summary { width: fit-content; cursor: pointer; color: var(--o8-muted); font-size: .6875rem; }
+.accept-tag-info summary:hover { color: var(--o8-accent); }
+.accept-tag-info summary:focus-visible { outline: 2px solid var(--o8-accent); outline-offset: 3px; }
+.accept-tag-info[open] .accept-tag-comparison { margin-top: 8px; padding: 9px; border: 1px solid var(--o8-line); border-radius: 7px; background: var(--o8-surface); }
 .inbound-batch-list { list-style: none; margin: 0; padding: 0; max-height: 18rem; overflow: auto; border: 1px solid var(--o8-line); border-radius: 7px; }
 .inbound-batch-list > li { padding: .6rem; border-bottom: 1px solid var(--o8-line); overflow-wrap: anywhere; }
 .inbound-batch-list > li:last-child { border-bottom: 0; }
@@ -150,7 +155,7 @@
 .search-error { font-size: .8125rem; }
 .search-pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 10px; border-top: 1px solid var(--o8-line); font-size: .6875rem; }
 .search-pagination, .list-footer { flex-shrink: 0; }
-.bulk-edit-section { border-top: 1px solid var(--o8-line); padding-top: 16px; margin-top: 18px; }
+.bulk-edit-section { margin-top: 9px; }
 .bulk-edit-section h3, #bulkReviewTitle { font-size: 1rem; }
 #bulkEditIds, #bulkReviewList { overflow-wrap: anywhere; }
 #bulkReviewList li { margin-bottom: 14px; }

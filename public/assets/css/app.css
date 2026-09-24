@@ -14,6 +14,29 @@
     --bs-link-hover-color: var(--o8-accent);
 }
 [data-bs-theme="dark"] { --bs-body-color: var(--o8-text); --bs-body-bg: var(--o8-background); --bs-border-color: var(--o8-line); --bs-secondary-color: var(--o8-muted); }
+/* Shared information groups: the same quiet hierarchy used in document details. */
+:where(.o8-info-group, #appearanceForm > fieldset, #appearanceForm > .row.g-3,
+    #bulkEditModal .bulk-edit-section, #sourceFetchModal .modal-body > .d-flex,
+    #sourceInventory, #inboundAiProgressModal .modal-body > .inbound-ai-progress-list) {
+    --o8-group-accent: 7%;
+    min-width: 0;
+    margin-bottom: 9px;
+    padding: 10px 11px;
+    border: 1px solid var(--o8-line);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--o8-accent) var(--o8-group-accent), var(--o8-surface));
+    color: var(--o8-text);
+}
+.o8-info-group--head { --o8-group-accent: 9%; }
+.o8-info-group--soft { --o8-group-accent: 4%; }
+.o8-info-group--strong { --o8-group-accent: 11%; }
+:where(.o8-info-group, #appearanceForm > fieldset, #appearanceForm > .row.g-3,
+    #bulkEditModal .bulk-edit-section, #sourceFetchModal .modal-body > .d-flex,
+    #sourceInventory) > :last-child { margin-bottom: 0; }
+.o8-info-group :is(h2,h3,h4,legend) { color: var(--o8-text); }
+#appearanceForm > fieldset:first-child { --o8-group-accent: 9%; }
+#appearanceForm > fieldset:last-of-type { --o8-group-accent: 11%; }
+#bulkEditModal .bulk-edit-section:nth-of-type(even) { --o8-group-accent: 4%; }
 html { font-size: calc(100% * var(--o8-font-scale)); }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--o8-background); color: var(--o8-text); font-size: 0.875rem; }
@@ -45,7 +68,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .nav-item:hover { color: var(--o8-accent); }
 .nav-item.active { background: var(--o8-surface); color: var(--o8-accent); box-shadow: 0 1px 5px #0000000a; }
 .header-tools { display: flex; align-items: center; gap: 9px; }
-.milestone-badge { border: 1px solid var(--o8-line); border-radius: 30px; padding: 7px 11px; font-size: 0.6875rem; background: var(--o8-surface); color: var(--o8-muted); display: flex; gap: 7px; align-items: center; }
 .status-dot { display: inline-block; height: 6px; width: 6px; border-radius: 100%; background: var(--o8-accent); flex-shrink: 0; }
 .demo-strip { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 0.6875rem; padding: 8px 34px; color: var(--o8-muted); border-bottom: 1px solid var(--o8-line); }
 .demo-strip > span { font-size: 0.5625rem; letter-spacing: .1em; font-weight: 750; color: var(--o8-accent); }
@@ -213,10 +235,6 @@ h1 { margin: 5px 0 7px; font-size: clamp(1.5rem, calc(2.2vw * var(--o8-font-scal
 .folder-options .form-check-input { margin: 0; }
 .modal-header, .modal-footer { border-color: var(--o8-line); }
 .modal-body { padding: 23px; }
-.milestone-content h3 { font-size: 1.4375rem; margin: 13px 0; letter-spacing: -.03em; }
-.milestone-content p, .milestone-content li { font-size: 0.8125rem; line-height: 1.8; color: var(--o8-muted); }
-.milestone-content li { margin-bottom: 9px; }
-.milestone-next { padding: 18px; border-radius: 8px; background: var(--o8-tint); }
 .toast-container { z-index: 1090; }
 .typography-preview { padding: 14px; border: 1px solid var(--o8-line); border-radius: 7px; background: var(--o8-tint); font-size: .875rem; line-height: 1.7; overflow-wrap: anywhere; }
 h1, h2, h3, .page-lead { overflow-wrap: anywhere; }
@@ -248,7 +266,6 @@ h1, h2, h3, .page-lead { overflow-wrap: anywhere; }
     .page { padding-left: 20px; padding-right: 20px; }
     .preview-canvas { padding: 17px; } .document-paper { padding: 25px 20px; }
     .doc-icon { display: none; } .details-content { padding: 17px 14px; }
-    .milestone-badge { padding: 7px; }
 }
 @media (max-width: 991px) {
     .app-header { flex-wrap: wrap; gap: 12px; padding: 14px 18px 0; }
@@ -278,7 +295,7 @@ h1, h2, h3, .page-lead { overflow-wrap: anywhere; }
 }
 @media (max-width: 575px) {
     .page { padding-left: 13px; padding-right: 13px; }
-    .milestone-badge { font-size: 0.5625rem; } .header-tools { gap: 4px; }
+    .header-tools { gap: 4px; }
     .workspace-heading { flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
     .workspace-heading > .btn { min-height: 34px; padding: 6px 10px; }
     .workspace-tools { gap: 6px; flex-wrap: wrap; }

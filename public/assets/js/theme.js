@@ -1,6 +1,3 @@
-import { browserTenantContext } from './tenancy.js';
-export const THEME_KEY = 'o8.appearance.v1';
-export const themeKey = profile => profile === 'second' ? `${THEME_KEY}.second` : THEME_KEY;
 // Generische lokale Schriftfamilien: keine Webfonts, Downloads oder Installation.
 export const FONT_FAMILIES = {
     system: 'system-ui, sans-serif',
@@ -34,15 +31,7 @@ export function normalizeTheme(input = {}) {
     }
     return output;
 }
-export function readTheme(profile) {
-    try {
-        const storage = browserTenantContext().storage;
-        profile ??= storage.getItem('o8.demo.profile');
-        return normalizeTheme(JSON.parse(storage.getItem(themeKey(profile)) || '{}'));
-    }
-    catch { return structuredClone(DEFAULT_THEME); }
-}
-export function applyTheme(settings = readTheme()) {
+export function applyTheme(settings = DEFAULT_THEME) {
     settings = normalizeTheme(settings);
     const mode = settings.mode === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : settings.mode;
     const colors = settings[mode];
@@ -57,7 +46,15 @@ export function applyTheme(settings = readTheme()) {
     root.style.setProperty('--o8-text', textOn(colors.surface) === '#ffffff' ? '#edf3f0' : '#202b27');
     return mode;
 }
-if (typeof document !== 'undefined' && document.documentElement.dataset.live !== '1') {
-    applyTheme();
-    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => applyTheme());
+export function rememberTheme(settings) {
+    const theme = normalizeTheme(settings);
+    document.cookie = `o8_theme=${encodeURIComponent(JSON.stringify(theme))}; Max-Age=31536000; Path=/; SameSite=Strict`;
+    const mode = theme.mode === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme.mode;
+    document.cookie = `o8_theme_mode=${encodeURIComponent(mode)}; Max-Age=31536000; Path=/; SameSite=Strict`;
+}
+export function rememberedTheme(cookieString = document.cookie) {
+    const value = cookieString.split('; ').find(item => item.startsWith('o8_theme='));
+    if (!value) return null;
+    try { return normalizeTheme(JSON.parse(decodeURIComponent(value.slice('o8_theme='.length)))); }
+    catch { return null; }
 }

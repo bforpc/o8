@@ -2,6 +2,7 @@
 declare(strict_types=1);
 // Included only after the common installation/session bootstrap.
 use O8\Documents\Documents;
+use O8\Documents\TrashRetention;
 use O8\Storage\Storage;
 use O8\Inbound\RemoteSourceBrowser;
 use O8\Inbound\RemoteFetchJobs;
@@ -16,7 +17,7 @@ try {
     if (!is_string($context) || $context==='' || !hash_equals($_SESSION['actor']['context_token']??'',$context)) { http_response_code(409); throw new RuntimeException('Mandantenkontext geändert. Bitte die Seite neu laden.'); }
     $actor->requireReady(); $documents=new Documents($db,$root); $api=$_GET['api'];
     if (!is_string($api)) throw new RuntimeException('Ungültiger Aufruf.');
-    $write=in_array($api,['upload','save','status','folder','link','tag','bulk','invoice','preferences','sourceFetch','sourceRun','inboundDelete','inboundAiStart','inboundAiRun','inboundAccept','inboundBatchPreview','inboundBatchAccept'],true);
+    $write=in_array($api,['upload','save','status','folder','link','tag','bulk','trashPurge','invoice','preferences','sourceFetch','sourceRun','inboundDelete','inboundAiStart','inboundAiRun','inboundAccept','inboundBatchPreview','inboundBatchAccept'],true);
     if ($_SERVER['REQUEST_METHOD']!==($write?'POST':'GET')) { http_response_code(405); throw new RuntimeException('HTTP-Methode nicht erlaubt.'); }
     if ($write && !hash_equals($_SESSION['csrf'],field('csrf'))) { http_response_code(403); throw new RuntimeException('Sitzung abgelaufen. Bitte Seite neu laden.'); }
     if ($api==='file') {
@@ -63,24 +64,33 @@ try {
     elseif ($api==='sourceJob') $result=(new RemoteFetchJobs($db,$root,$identity))->job($actor,(int)($_GET['id']??0));
     elseif ($api==='inboundItems') $result=(new InboundWorkbench($db,$root))->items($actor,(string)($_GET['query']??''));
     elseif ($api==='inboundProposal') $result=(new InboundAcceptance($db,$root))->proposal($actor,(int)($_GET['id']??0));
-    elseif ($api==='inboundAccept') $result=['id'=>(new InboundAcceptance($db,$root))->accept($actor,(int)field('id'),(int)field('revision'),json_decode(field('input'),true,64,JSON_THROW_ON_ERROR))];
+    elseif ($api==='inboundAccept') {
+        $input=json_decode(field('input'),true,64,JSON_THROW_ON_ERROR);
+        if (!is_array($input)) throw new RuntimeException('Ungültige Übernahmeangaben.');
+        $input['tagMode']='replace';
+        $result=['id'=>(new InboundAcceptance($db,$root))->accept($actor,(int)field('id'),(int)field('revision'),$input)];
+    }
     elseif ($api==='inboundBatchPreview') $result=(new InboundAcceptance($db,$root))->batchPreview($actor,json_decode(field('items'),true,16,JSON_THROW_ON_ERROR));
     elseif ($api==='inboundBatchAccept') $result=['id'=>(new InboundAcceptance($db,$root))->acceptBatchItem($actor,(int)field('id'),(int)field('revision'),field('proposalToken'),json_decode(field('shared'),true,16,JSON_THROW_ON_ERROR))];
     elseif ($api==='inboundGet') { $inboundId=(int)($_GET['id']??0); $result=(new InboundWorkbench($db,$root))->get($actor,$inboundId); $aiJobs=new AiJobs($db,$root,$identity); $result['ai_history']=$aiJobs->history($actor,$inboundId); $result['active_ai_job_id']=$aiJobs->activeJob($actor,$inboundId); }
     elseif ($api==='inboundAiJob') $result=(new AiJobs($db,$root,$identity))->job($actor,(int)($_GET['id']??0));
     elseif ($api==='get') $result=$documents->get($actor,(int)($_GET['id']??0));
+    elseif ($api==='folderDeletePreview') { $preview=$documents->folderDeletePreview($actor,(int)($_GET['id']??0)); $result=['name'=>$preview['name'],'folders'=>$preview['folders'],'documents'=>$preview['documents'],'fingerprint'=>$preview['fingerprint']]; }
     elseif ($api==='upload') $result=['id'=>$documents->upload($actor,is_array($_FILES['document']??null)?$_FILES['document']:[])];
-    elseif ($api==='save') { $input=$_POST; $input['tags']=json_decode(field('tags'),true,16,JSON_THROW_ON_ERROR); $documents->save($actor,(int)field('id'),(int)field('revision'),$input); }
+    elseif ($api==='save') { $input=$_POST; $input['tags']=json_decode(field('tags'),true,16,JSON_THROW_ON_ERROR); $input['newTags']=json_decode(field('newTags')?:'[]',true,16,JSON_THROW_ON_ERROR); $documents->save($actor,(int)field('id'),(int)field('revision'),$input); }
     elseif ($api==='status') $documents->status($actor,(int)field('id'),(int)field('revision'),field('operation'));
     elseif ($api==='folder') {
+        if (field('operation')==='delete' && (field('confirm')!=='yes' || !preg_match('/^[a-f0-9]{64}$/D',field('fingerprint')))) throw new RuntimeException('Bitte die Ordnerlöschung ausdrücklich bestätigen.');
         $parent=field('parent_id');
         $parentId=$parent===''?null:(ctype_digit($parent)?(int)$parent:null);
         if ($parent!=='' && $parentId===null) throw new RuntimeException('Ungültiger übergeordneter Ordner.');
-        $documents->folderWrite($actor,field('operation'),(int)field('id'),field('name'),$parentId);
+        $documents->folderWrite($actor,field('operation'),(int)field('id'),field('name'),$parentId,field('operation')==='delete'?field('fingerprint'):null);
     }
     elseif ($api==='link') $documents->link($actor,(int)field('id'),(int)field('revision'),(int)field('folder'),field('remove')==='1');
     elseif ($api==='tag') $documents->createTag($actor,field('name'));
     elseif ($api==='bulk') $result=['count'=>$documents->bulk($actor,['documents'=>json_decode(field('documents'),true,512,JSON_THROW_ON_ERROR),'folderAction'=>field('folderAction'),'folderId'=>field('folderId'),'sourceFolderId'=>field('sourceFolderId'),'tagAction'=>field('tagAction'),'tags'=>json_decode(field('tags'),true,512,JSON_THROW_ON_ERROR),'ownerId'=>field('ownerId'),'status'=>field('status')])];
+    elseif ($api==='trashPurgeInfo') $result=(new TrashRetention($db,$root))->manualInfo($actor);
+    elseif ($api==='trashPurge') { if (field('confirm')!=='yes') throw new RuntimeException('Bitte die endgültige Löschung ausdrücklich bestätigen.'); $result=['removed'=>(new TrashRetention($db,$root))->manualPurge($actor,(int)field('id'),(int)field('revision'))?1:0]; }
     elseif ($api==='invoice') $documents->saveInvoice($actor,(int)field('id'),(int)field('revision'),json_decode(field('invoice'),true,512,JSON_THROW_ON_ERROR));
     elseif ($api==='preferences') $result=$documents->preferences($actor,json_decode(field('preferences'),true,16,JSON_THROW_ON_ERROR));
     elseif ($api==='sourceFetch') $result=(new RemoteFetchJobs($db,$root,$identity))->enqueue($actor,(int)field('source'),json_decode(field('keys'),true,16,JSON_THROW_ON_ERROR));

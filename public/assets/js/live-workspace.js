@@ -1,11 +1,11 @@
 import { ColumnLayout } from './layout.js';
-import { TagPicker } from './tag-picker.js';
-import { applyTheme, DEFAULT_THEME, normalizeTheme } from './theme.js';
+import { TagPicker, confirmNewTagSelection } from './tag-picker.js';
+import { applyTheme, DEFAULT_THEME, normalizeTheme, rememberTheme } from './theme.js';
 import { LiveInvoiceEditor } from './live-invoice.js';
 import { InboundAcceptanceDialog } from './live-inbound-acceptance.js';
 import { InboundBatchDialog } from './live-inbound-batch.js';
 import { bookingSummary, savedBookingSummary } from './booking-summary.js';
-import { choiceDialog, confirmDialog, inputDialog } from './dialog.js';
+import { choiceDialog, confirmDialog } from './dialog.js';
 
 const $ = id => document.getElementById(id);
 const root = $('liveApp');
@@ -13,7 +13,7 @@ const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;',
 const dateLabel = value => /^\d{4}-\d{2}-\d{2}$/.test(String(value ?? '')) ? `${value.slice(8,10)}.${value.slice(5,7)}.${value.slice(0,4)}` : (value || 'Ohne Datum');
 const grossLabel = doc => doc.gross_amount === null || doc.gross_amount === undefined ? '' : new Intl.NumberFormat('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(doc.gross_amount)) + ' ' + doc.currency;
 const state = { scope: 'inbox', localScope: 'inbox', searchMode: 'global', page: 1, document: null, meta: null, filteredFolderCounts: null, filteredInboxCount: null, filteredAllCount: null, filteredTrashCount: null, dirty: false, querySequence: 0, documentSequence: 0, selected: new Set(), inboundSelected: new Set(), rows: [] };
-let picker, bulkPicker, invoiceEditor, layout, preferences = { widths: [18,27,29,26], mode: 'system', theme: structuredClone(DEFAULT_THEME) }, pending = 0, waitTimer, writing = false;
+let picker, bulkPicker, invoiceEditor, layout, preferences = { widths: [18,27,29,26], mode: 'system', theme: structuredClone(DEFAULT_THEME) }, pending = 0, waitTimer, writing = false, suppressWaiting = false;
 let noticeTimer, autoSearchTimer, sourcePollTimer;
 let inboundActionItems=[];
 const aiStatusLabel = value => ({not_requested:'KI nicht angefordert',queued:'KI wartet',running:'KI läuft',ready:'KI-Daten vorhanden',failed:'KI-Fehler',completed:'Abgeschlossen'})[value] || value;
@@ -28,7 +28,7 @@ function notice(message) {
 if (!$('liveNotice').hidden) notice($('liveNotice').textContent);
 function busy(start) {
     pending += start ? 1 : -1;
-    if (start && pending === 1) waitTimer = setTimeout(() => { $('searchWaiting').hidden = false; }, 180);
+    if (start && pending === 1 && !suppressWaiting) waitTimer = setTimeout(() => { $('searchWaiting').hidden = false; }, 180);
     if (!pending) { clearTimeout(waitTimer); $('searchWaiting').hidden = true; }
 }
 function url(action, input = {}) {
@@ -94,7 +94,7 @@ async function metadata(initial = false) {
     folders();
     if ($('linkFolder')) { const selected = $('linkFolder').value; $('linkFolder').innerHTML = options(state.meta.folders,'Ordner wählen'); $('linkFolder').value = selected; }
 }
-function theme() { preferences.theme = normalizeTheme(preferences.theme || {mode:preferences.mode}); preferences.mode = preferences.theme.mode; applyTheme(preferences.theme); document.cookie = `o8_theme_mode=${encodeURIComponent(preferences.theme.mode === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : preferences.theme.mode)}; Max-Age=31536000; Path=/; SameSite=Strict`; }
+function theme() { preferences.theme = normalizeTheme(preferences.theme || {mode:preferences.mode}); preferences.mode = preferences.theme.mode; applyTheme(preferences.theme); rememberTheme(preferences.theme); }
 async function savePreferences() {
     try { await api('preferences', {preferences: JSON.stringify(preferences)}, true); }
     catch (problem) { error(new Error('Anzeigeeinstellungen nicht gespeichert: ' + problem.message)); }
@@ -103,7 +103,7 @@ function folders() {
     const linked = new Set((state.document?.folders || []).map(String));
     const button = (scope, name, real = false, depth = 0) => {
         const count = scope === 'inbox' ? state.filteredInboxCount ?? state.meta.inboxCount ?? 0 : scope === 'unfiled' ? state.filteredUnfiledCount ?? state.meta.unfiledCount ?? 0 : scope === 'all' ? state.filteredAllCount ?? state.meta.allCount ?? 0 : scope === 'trash' ? state.filteredTrashCount ?? state.meta.trashCount ?? 0 : state.filteredFolderCounts?.[scope] ?? state.meta.folderCounts?.[scope] ?? 0;
-        return '<div class="folder-nav-row" style="--folder-depth:' + depth + '"><button class="folder-nav-item ' + (String(state.scope) === String(scope) ? 'active ' : '') + (linked.has(String(scope)) ? 'has-selected-document' : '') + '" data-scope="' + scope + '"' + (real ? ' data-drop-folder="' + scope + '"' : '') + '><svg class="icon small-icon" aria-hidden="true"><use href="#i-' + (scope === 'inbox' ? 'inbox' : scope === 'trash' ? 'trash' : scope === 'all' ? 'document' : 'folder') + '"/></svg><span>' + esc(name) + '</span>' + (real || scope === 'unfiled' || scope === 'inbox' || scope === 'trash' || scope === 'all' ? '<span class="count" aria-label="' + count + ' Dokumente">' + count + '</span>' : '') + '</button>' + (real ? '<button class="btn btn-sm icon-btn folder-manage" data-edit-folder="' + scope + '" aria-label="Ordner ' + esc(name) + ' bearbeiten" title="Ordner bearbeiten"><svg class="icon small-icon" aria-hidden="true"><use href="#i-settings"/></svg></button>' : '') + '</div>';
+        return '<div class="folder-nav-row" style="--folder-depth:' + depth + '"><button class="folder-nav-item ' + (String(state.scope) === String(scope) ? 'active ' : '') + (linked.has(String(scope)) ? 'has-selected-document' : '') + '" data-scope="' + scope + '"' + (real ? ' data-drop-folder="' + scope + '"' : '') + '><svg class="icon small-icon" aria-hidden="true"><use href="#i-' + (scope === 'inbox' ? 'inbox' : scope === 'trash' ? 'trash' : scope === 'all' ? 'document' : 'folder') + '"/></svg><span>' + esc(name) + '</span>' + (real || scope === 'unfiled' || scope === 'inbox' || scope === 'trash' || scope === 'all' ? '<span class="count" aria-label="' + count + ' Dokumente">' + count + '</span>' : '') + '</button>' + (real ? '<button class="btn btn-sm icon-btn folder-manage" data-edit-folder="' + scope + '" aria-label="Ordner ' + esc(name) + ' bearbeiten" title="Ordner bearbeiten"><svg class="icon small-icon" aria-hidden="true"><use href="#i-settings"/></svg></button>' : scope === 'trash' ? '<button class="btn btn-sm icon-btn folder-manage" data-empty-trash aria-label="Papierkorb leeren" title="Papierkorb leeren"><svg class="icon small-icon" aria-hidden="true"><use href="#i-settings"/></svg></button>' : '') + '</div>';
     };
     const ordered = []; const byParent = new Map();
     for (const folder of state.meta.folders) { const key = folder.parent_id == null ? 'root' : String(folder.parent_id); if (!byParent.has(key)) byParent.set(key, []); byParent.get(key).push(folder); }
@@ -163,7 +163,7 @@ async function search() {
         $('resultsPage').textContent = 'Seite ' + result.page + ' / ' + result.pages;
         $('previousResults').disabled = result.page <= 1; $('nextResults').disabled = result.page >= result.pages;
         const inboundRows=(state.page===1?inbound:[]).map(row=>({...row,_inbound:true})); state.rows=[...inboundRows,...result.rows];
-        const inboundHtml=inboundRows.map(item=>'<article class="doc-row inbound-row" data-inbound-row="'+item.id+'"><label class="doc-check"><input class="form-check-input" type="checkbox" data-inbound-select="'+item.id+'" aria-label="'+esc(item.original_name)+' auswählen"></label><button class="doc-open" data-inbound="'+item.id+'"><span class="doc-title">'+esc(item.original_name)+'</span><span class="doc-second-line"><span class="doc-sender">'+esc(item.source_name)+' · '+esc(item.owner_name)+'</span></span><span class="doc-meta"><time datetime="'+esc(item.discovered_at)+'">'+esc(dateLabel(String(item.discovered_at).slice(0,10)))+'</time><span>E'+item.id+'</span><span class="tag">'+esc(({not_requested:'KI offen',queued:'KI wartet',running:'KI läuft',ready:'KI bereit',failed:'KI-Fehler'})[item.ai_status] || item.ai_status)+'</span></span></button></article>').join('');
+        const inboundHtml=inboundRows.map(item=>'<article class="doc-row inbound-row" data-inbound-row="'+item.id+'" data-drag-inbound="'+item.id+'"><label class="doc-check"><input class="form-check-input" type="checkbox" data-inbound-select="'+item.id+'" aria-label="'+esc(item.original_name)+' auswählen"></label><button class="doc-open" data-inbound="'+item.id+'"><span class="doc-title">'+esc(item.original_name)+'</span><span class="doc-second-line"><span class="doc-sender">'+esc(item.source_name)+' · '+esc(item.owner_name)+'</span></span><span class="doc-meta"><time datetime="'+esc(item.discovered_at)+'">'+esc(dateLabel(String(item.discovered_at).slice(0,10)))+'</time><span>E'+item.id+'</span><span class="tag">'+esc(({not_requested:'KI offen',queued:'KI wartet',running:'KI läuft',ready:'KI bereit',failed:'KI-Fehler'})[item.ai_status] || item.ai_status)+'</span></span></button></article>').join('');
         const documentHtml=result.rows.map(doc => '<article class="doc-row" data-drag-document="' + doc.id + '"><label class="doc-check"><input class="form-check-input" type="checkbox" data-select="' + doc.id + '" aria-label="' + esc(doc.title) + ' auswählen"></label><button class="doc-open" data-document="' + doc.id + '"><span class="doc-title">' + esc(doc.title) + '</span><span class="doc-second-line"><span class="doc-sender">' + esc(doc.sender || 'Ohne Absender') + '</span>' + (doc.gross_amount !== null && doc.gross_amount !== undefined ? '<span class="doc-gross">' + esc(grossLabel(doc)) + '</span>' : '') + '</span><span class="doc-meta"><time datetime="' + esc(doc.document_date || '') + '">' + esc(dateLabel(doc.document_date)) + '</time><span>D' + doc.id + '</span><span class="doc-meta-count doc-folder-count" data-folder-ids="' + esc(JSON.stringify(doc.folder_ids || [])) + '" aria-describedby="docTagsTooltip" aria-label="' + Number(doc.folder_count || 0) + ' Ordner"><svg class="icon small-icon" aria-hidden="true"><use href="#i-link"/></svg> ' + Number(doc.folder_count || 0) + '</span>' + (doc.tag_names?.length ? '<span class="doc-meta-count doc-tag-count" data-tag-names="' + esc(JSON.stringify(doc.tag_names)) + '" aria-label="' + doc.tag_names.length + ' Tags" aria-describedby="docTagsTooltip"><svg class="icon small-icon" aria-hidden="true"><use href="#i-tag"/></svg> ' + doc.tag_names.length + '</span>' : '') + '</span></button></article>').join('');
         $('documentList').innerHTML = inboundHtml+documentHtml || '<div class="empty-state">Keine Dokumente in diesem Suchbereich.</div>';
         syncSelection();
@@ -205,15 +205,27 @@ async function selectInbound(id,force=false) {
         $('downloadFile').href=url('inboundFile',{id,download:1}); $('downloadFile').hidden=false;
         let json=item.json_text; if (json) try { json=JSON.stringify(JSON.parse(json),null,2); } catch { /* Ungültiges JSON bleibt als Rohtext sichtbar. */ }
         const clipped=(value,limit=100000)=>value&&value.length>limit?value.slice(0,limit)+'\n… Vorschau gekürzt …':value;
-        const history=(item.acceptance_status==='blocked'?'<div class="alert alert-warning small" role="status"><strong>Automatische Übernahme: Prüfung nötig</strong><br>'+esc(item.acceptance_message)+'</div>':'')+(Array.isArray(item.ai_history)&&item.ai_history.length?'<section class="inbound-ai-history"><span class="detail-label">KI-VERLAUF</span><ol>'+item.ai_history.map(run=>'<li><strong>'+esc(aiStatusLabel(run.status))+'</strong><span>'+esc(dateLabel(String(run.created_at).slice(0,10)))+' · '+esc(run.requested_by_name)+(run.error_code?' · '+esc(aiErrorLabel(run.error_code)):'')+'</span></li>').join('')+'</ol></section>':'<p class="live-detail-empty">Noch kein KI-Lauf vorhanden.</p>');
-        const aiTags=json!==null?'<section class="live-detail-tags"><span class="detail-label">KI-TAGVORSCHLÄGE</span><div class="tag-list">'+(item.ai_tag_matches.length?item.ai_tag_matches.map(tag=>'<span class="tag">'+esc(tag.name)+'</span>').join(''):'<span class="live-detail-empty">Keine vorhandenen Tags erkannt</span>')+'</div>'+(item.ai_tag_ignored.length?'<p class="small text-body-secondary mt-1 mb-0">Ignoriert (nicht im aktiven Katalog): '+esc(item.ai_tag_ignored.join(', '))+'</p>':'')+'</section>':'';
+        const history=(item.acceptance_status==='blocked'?'<div class="alert alert-warning small" role="status"><strong>Automatische Übernahme: Prüfung nötig</strong><br>'+esc(item.acceptance_message)+'</div>':'')+(Array.isArray(item.ai_history)&&item.ai_history.length?'<section class="inbound-ai-history o8-info-group o8-info-group--soft"><span class="detail-label">KI-VERLAUF</span><ol>'+item.ai_history.map(run=>'<li><strong>'+esc(aiStatusLabel(run.status))+'</strong><span>'+esc(dateLabel(String(run.created_at).slice(0,10)))+' · '+esc(run.requested_by_name)+(run.error_code?' · '+esc(aiErrorLabel(run.error_code)):'')+'</span></li>').join('')+'</ol></section>':'<section class="o8-info-group o8-info-group--soft"><span class="detail-label">KI-VERLAUF</span><p class="live-detail-empty">Noch kein KI-Lauf vorhanden.</p></section>');
+        const aiTags=json!==null?'<section class="live-detail-tags o8-info-group o8-info-group--soft"><span class="detail-label">KI-TAGVORSCHLÄGE</span><div class="tag-list">'+(item.ai_tag_matches.length?item.ai_tag_matches.map(tag=>'<span class="tag">'+esc(tag.name)+'</span>').join(''):'<span class="live-detail-empty">Keine vorhandenen Tags erkannt</span>')+'</div>'+(item.ai_tag_ignored.length?'<p class="small text-body-secondary mt-1 mb-0">Ignoriert (nicht im aktiven Katalog): '+esc(item.ai_tag_ignored.join(', '))+'</p>':'')+'</section>':'';
         $('documentDetails').innerHTML='<section class="live-detail-intro"><div class="live-detail-status"><span class="tag">'+esc(item.source_kind.toUpperCase())+'</span><span class="tag">'+esc(({pending:'Bereit',duplicate:'Duplikat',invalid:'Ungültig'})[item.inventory_status]||item.inventory_status)+'</span><span class="tag">'+esc(aiStatusLabel(item.ai_status))+'</span></div><h2>'+esc(item.original_name)+'</h2><p>'+esc(item.source_name)+'</p></section><div class="live-detail-facts"><div><span class="detail-label">BESITZER</span><span class="detail-value">'+esc(item.owner_name)+'</span></div><div><span class="detail-label">GEFUNDEN</span><span class="detail-value">'+esc(dateLabel(String(item.discovered_at).slice(0,10)))+'</span></div><div><span class="detail-label">DATEITYP</span><span class="detail-value">'+esc(item.mime_type)+'</span></div><div><span class="detail-label">GRÖSSE</span><span class="detail-value">'+Math.ceil(Number(item.size_bytes)/1024)+' KiB</span></div></div>'+(json!==null?'<section class="inbound-sidecar"><span class="detail-label">KI-/JSON-DATEN</span><pre>'+esc(clipped(json))+'</pre></section>':'<p class="live-detail-empty">Keine JSON-Daten vorhanden.</p>')+aiTags+(item.text_content!==null?'<section class="inbound-sidecar"><span class="detail-label">OCR-/TEXTDATEN</span><pre>'+esc(clipped(item.text_content))+'</pre></section>':'')+history+'<div class="live-detail-actions"><button class="btn btn-primary" type="button" id="runInboundAi" '+(!state.meta.aiReady?'disabled':'')+'>'+(item.active_ai_job_id?'KI-Verarbeitung fortsetzen …':item.ai_status==='ready'||item.ai_status==='failed'?'KI erneut ausführen …':'Mit KI analysieren …')+'</button><button class="btn btn-outline-danger" type="button" id="deleteInboundItem">Aus Eingang löschen …</button></div>';
+        const detailRoot=$('documentDetails');
+        if (json!==null) {
+            const section=detailRoot.querySelector('.inbound-sidecar');
+            const disclosure=document.createElement('details'); disclosure.className='inbound-sidecar';
+            const summary=document.createElement('summary'); summary.textContent='KI-/JSON-Daten anzeigen';
+            disclosure.append(summary,section.querySelector('pre')); section.replaceWith(disclosure);
+        }
+        const inboundHead=document.createElement('section'); inboundHead.className='o8-info-group o8-info-group--head inbound-detail-head';
+        detailRoot.querySelector('.live-detail-intro').before(inboundHead);
+        inboundHead.append(detailRoot.querySelector('.live-detail-intro'),detailRoot.querySelector('.live-detail-facts'));
+        detailRoot.querySelectorAll('.inbound-sidecar').forEach((section,index)=>section.classList.add('o8-info-group',index?'o8-info-group--soft':'o8-info-group--strong'));
+        detailRoot.querySelector('.live-detail-actions').classList.add('o8-info-group','o8-info-group--soft');
         const accept=document.createElement('button'); accept.type='button'; accept.className='btn btn-primary'; accept.id='acceptInboundItem'; accept.textContent='In das DMS übernehmen …'; accept.disabled=Boolean(item.active_ai_job_id)||['queued','running'].includes(item.ai_status);
         accept.addEventListener('click',()=>acceptanceDialog.open(item.id).catch(error)); $('documentDetails').querySelector('.live-detail-actions').prepend(accept);
         $('deleteInboundItem').addEventListener('click',()=>deleteInbound([{id:Number(item.id),revision:Number(item.revision)}]));
         $('runInboundAi').addEventListener('click',()=>item.active_ai_job_id?runInboundAiJob(Number(item.active_ai_job_id)):startInboundAi([{id:Number(item.id),revision:Number(item.revision)}])); folders();
-        const booking=document.createElement('div'); booking.className='inbound-booking-overview'; booking.textContent='Buchungsübersicht wird geladen …';
-        $('documentDetails').querySelector('.live-detail-facts').after(booking);
+        const booking=document.createElement('div'); booking.className='inbound-booking-overview o8-info-group o8-info-group--strong'; booking.textContent='Buchungsübersicht wird geladen …';
+        inboundHead.after(booking);
         try {
             const proposal=await api('inboundProposal',{id});
             if(sequence!==state.documentSequence)return;
@@ -230,27 +242,28 @@ function details() {
     const type = ({document:'Dokument',invoice:'Rechnung',credit_note:'Gutschrift',contract:'Vertrag',certificate:'Bescheinigung'})[d.document_type] || d.document_type || 'Dokument';
     const documentTags = state.meta.tags.filter(tag => d.tags.includes(Number(tag.id))).map(tag => tag.name);
     const fact = (label, value) => '<div><span class="detail-label">' + label + '</span><span class="detail-value">' + esc(value || '–') + '</span></div>';
-    const tagView = '<section class="live-detail-tags"><span class="detail-label">TAGS</span><div class="tag-list">' + (documentTags.length ? documentTags.map(name => '<span class="tag">' + esc(name) + '</span>').join('') : '<span class="live-detail-empty">Keine Tags</span>') + '</div></section>';
-    const invoice = '<section class="live-invoice-summary"><div><span class="detail-label">BUCHUNGSDATEN</span><strong>' + (d.invoice ? esc(new Intl.NumberFormat('de-DE',{style:'currency',currency:d.invoice.currency,currencyDisplay:'code'}).format(Number(d.invoice.gross))) : 'Noch keine Buchungsdaten') + '</strong></div><button class="btn btn-sm btn-surface" type="button" data-invoice>Buchungsdaten ' + (d.invoice ? 'bearbeiten' : 'erfassen') + '</button></section>';
-    $('documentDetails').innerHTML = '<div class="live-detail-intro"><div class="live-detail-status"><span class="tag">' + esc(type) + '</span>' + (Number(d.expired) ? '<span class="tag">Abgelaufen</span>' : '') + (!Number(d.searchable) ? '<span class="tag">Nicht suchbar</span>' : '') + '</div><h2>' + esc(d.title) + '</h2><p>' + esc(d.sender || 'Ohne Absender') + '</p><span class="detail-label">' + esc(d.original_name) + ' · ' + Math.ceil(Number(d.size_bytes)/1024) + ' KiB</span></div>' +
-        '<div class="live-detail-facts">' + fact('Dokumentdatum',dateLabel(d.document_date)) + fact('Quelle',source) + fact('Referenz',d.reference) + fact('Besitzer',owner) + '</div>' +
-        tagView +
-        invoice + savedBookingSummary(d,state.meta.accounting.accounts) +
-        (d.deleted_at ? '<div class="live-detail-actions"><span>Im Papierkorb. Ordnerverknüpfungen bleiben erhalten.</span><button class="btn btn-primary btn-sm" data-status="restore">Wiederherstellen</button></div>' :
-        '<div class="live-detail-actions"><button class="btn btn-surface btn-sm" type="button" id="documentEditToggle" aria-controls="documentEditor" aria-expanded="false"><svg class="icon small-icon" aria-hidden="true"><use href="#i-settings"/></svg> Bearbeiten</button>' + (Number(d.in_inbox) ? '<button class="btn btn-surface btn-sm" data-status="accept">Übernehmen</button>' : '') + '<button class="btn btn-outline-danger btn-sm" data-status="trash">Papierkorb</button></div>' +
+    const tagView = '<section class="live-detail-tags o8-info-group o8-info-group--soft"><span class="detail-label">TAGS</span><div class="tag-list">' + (documentTags.length ? documentTags.map(name => '<span class="tag">' + esc(name) + '</span>').join('') : '<span class="live-detail-empty">Keine Tags</span>') + '</div></section>';
+    const invoice = '<section class="live-invoice-summary"><div><span class="detail-label">BUCHUNGSDATEN</span><strong>' + (d.invoice ? (d.invoice.gross!==null ? esc(new Intl.NumberFormat('de-DE',{style:'currency',currency:d.invoice.currency,currencyDisplay:'code'}).format(Number(d.invoice.gross))) : 'Betrag noch unvollständig') + (d.invoice.mode==='partial'?' · unvollständig':'') : 'Noch keine Buchungsdaten') + '</strong></div><button class="btn btn-sm btn-surface" type="button" data-invoice>Buchungsdaten ' + (d.invoice ? 'bearbeiten' : 'erfassen') + '</button></section>';
+    const actions = d.deleted_at ? '<button class="btn btn-primary btn-sm" data-status="restore">Wiederherstellen</button>' :
+        '<button class="btn btn-surface btn-sm" type="button" id="documentEditToggle" aria-controls="documentEditor" aria-expanded="false"><svg class="icon small-icon" aria-hidden="true"><use href="#i-settings"/></svg> Bearbeiten</button>' + (Number(d.in_inbox) ? '<button class="btn btn-surface btn-sm" data-status="accept">Übernehmen</button>' : '') + '<button class="btn btn-outline-danger btn-sm" data-status="trash">Papierkorb</button>';
+    const editor = d.deleted_at ? '' :
         '<section class="live-detail-disclosure live-detail-editor" id="documentEditor" hidden><form id="documentForm"><div class="live-detail-edit-grid">' + field('title','Titel',d.title) + field('sender','Absender',d.sender) + field('reference','Referenz',d.reference) + field('date','Dokumentdatum',d.document_date,'date') + '</div>' +
-        '<label>Notiz<textarea class="form-control" name="memo" maxlength="10000" rows="3">' + esc(d.memo) + '</textarea></label><div class="live-detail-flags"><label><input type="checkbox" name="expired" value="1" ' + (Number(d.expired) ? 'checked' : '') + '> Abgelaufen</label><label><input type="checkbox" name="notSearchable" value="1" ' + (!Number(d.searchable) ? 'checked' : '') + '> Nicht suchbar</label></div><p>Tags</p>' + (root.dataset.admin === '1' ? '<button class="btn btn-sm btn-surface mb-2" type="button" id="tagCreate">Neuen Katalog-Tag anlegen</button>' : '') + '<div id="liveTagPicker"></div><div><button class="btn btn-primary btn-sm mt-2">Speichern' + (Number(d.in_inbox) ? ' & übernehmen' : '') + '</button></div></form><div class="live-detail-link-editor"><label class="d-block">In Ordner verlinken<select id="linkFolder" class="form-select">' + options(state.meta.folders,'Ordner wählen') + '</select></label><button class="btn btn-surface btn-sm mt-2" id="linkButton">Verlinken …</button></div></section>') +
-        '<section class="live-detail-disclosure live-detail-folders"><h3><svg class="icon small-icon" aria-hidden="true"><use href="#i-folder"/></svg> Ordnerverknüpfungen <span class="count">' + d.folders.length + '</span></h3><div class="live-detail-folder-list">' + d.folders.map(id => { const folder = state.meta.folders.find(x => Number(x.id) === id); return folder ? '<div class="folder-chip"><span>' + esc(folder.name) + '</span>' + (!d.deleted_at ? '<button type="button" data-unlink="' + id + '" aria-label="Verknüpfung entfernen">×</button>' : '') + '</div>' : ''; }).join('') + '</div>' +
-        '</section>';
+        '<label>Notiz<textarea class="form-control" name="memo" maxlength="10000" rows="3">' + esc(d.memo) + '</textarea></label><div class="live-detail-flags"><label><input type="checkbox" name="expired" value="1" ' + (Number(d.expired) ? 'checked' : '') + '> Abgelaufen</label><label><input type="checkbox" name="notSearchable" value="1" ' + (!Number(d.searchable) ? 'checked' : '') + '> Nicht suchbar</label></div><p>Tags</p><div id="liveTagPicker"></div><div><button class="btn btn-primary btn-sm mt-2">Speichern' + (Number(d.in_inbox) ? ' & übernehmen' : '') + '</button></div></form><div class="live-detail-link-editor"><label class="d-block">In Ordner verlinken<select id="linkFolder" class="form-select">' + options(state.meta.folders,'Ordner wählen') + '</select></label><button class="btn btn-surface btn-sm mt-2" id="linkButton">Verlinken …</button></div></section>';
+    const foldersView = '<section class="live-detail-folders o8-info-group"><h3><svg class="icon small-icon" aria-hidden="true"><use href="#i-folder"/></svg> Ordnerverknüpfungen <span class="count">' + d.folders.length + '</span></h3><div class="live-detail-folder-list">' + d.folders.map(id => { const folder = state.meta.folders.find(x => Number(x.id) === id); return folder ? '<div class="folder-chip"><span>' + esc(folder.name) + '</span>' + (!d.deleted_at ? '<button type="button" data-unlink="' + id + '" aria-label="Verknüpfung entfernen">×</button>' : '') + '</div>' : ''; }).join('') + '</div></section>';
+    $('documentDetails').innerHTML = '<section class="live-detail-head o8-info-group o8-info-group--head"><div class="live-detail-intro"><div class="live-detail-top"><div class="live-detail-status"><span class="tag">' + esc(type) + '</span>' + (Number(d.expired) ? '<span class="tag">Abgelaufen</span>' : '') + (!Number(d.searchable) ? '<span class="tag">Nicht suchbar</span>' : '') + '</div><div class="live-detail-actions">' + actions + '</div></div><h2>' + esc(d.title) + '</h2><p>' + esc(d.sender || 'Ohne Absender') + '</p><span class="detail-label">' + esc(d.original_name) + ' · ' + Math.ceil(Number(d.size_bytes)/1024) + ' KiB</span></div>' +
+        '<div class="live-detail-facts">' + fact('Dokumentdatum',dateLabel(d.document_date)) + fact('Quelle',source) + fact('Referenz',d.reference) + fact('Besitzer',owner) + '</div></section>' +
+        editor + tagView + foldersView + '<section class="live-detail-booking o8-info-group o8-info-group--strong">' + invoice + savedBookingSummary(d,state.meta.accounting.accounts) + '</section>';
     if (!d.deleted_at) {
         const selected = state.meta.tags.filter(x => d.tags.includes(Number(x.id))).map(x => x.name);
-        picker = new TagPicker($('liveTagPicker'),state.meta.tags.map(x => x.name),selected,() => { state.dirty = true; });
+        picker = new TagPicker($('liveTagPicker'),state.meta.tags.map(x => x.name),selected,() => { state.dirty = true; },'Tags suchen und auswählen',true);
         $('documentForm').addEventListener('input',() => { state.dirty = true; });
         $('documentForm').addEventListener('submit',async event => {
             event.preventDefault();
+            const newTags=await confirmNewTagSelection(picker,confirmDialog);
             const values = Object.fromEntries(new FormData(event.target));
             values.tags = JSON.stringify(state.meta.tags.filter(x => picker.values().includes(x.name)).map(x => Number(x.id)));
-            if (await write('save',{...values,id:d.id,revision:d.revision},'Dokument gespeichert und in die Ablage übernommen.')) { state.dirty = false; await search(); }
+            values.newTags=JSON.stringify(newTags);
+            if (await write('save',{...values,id:d.id,revision:d.revision},'Dokument gespeichert und in die Ablage übernommen.')) { state.dirty = false; await metadata(); await search(); }
         });
     }
 }
@@ -271,7 +284,37 @@ $('folderNavigationDesktop').addEventListener('click',async event => {
     }
     const edit = event.target.closest('[data-edit-folder]');
     if (edit) openFolder(state.meta.folders.find(x => Number(x.id) === Number(edit.dataset.editFolder)));
+    if (event.target.closest('[data-empty-trash]')) emptyTrash();
 });
+async function emptyTrash() {
+    if (!(await discard())) return;
+    try {
+        const snapshot=await api('trashPurgeInfo');
+        const total=Number(snapshot.count);
+        if (!total) { notice('Der Papierkorb ist leer.'); return; }
+        const scope=root.dataset.admin==='1'?'alle Dokumente dieses Mandanten':'alle Ihre Dokumente';
+        if (!(await confirmDialog('Papierkorb vollständig leeren?',`${total} Dokument(e) im Papierkorb endgültig löschen? Betroffen sind ${scope}. Dateien und Buchungsdaten können danach nicht wiederhergestellt werden.`,'Papierkorb endgültig leeren',true))) return;
+        const modal=bootstrap.Modal.getOrCreateInstance($('trashPurgeModal'));
+        const progress=$('trashPurgeProgress'), status=$('trashPurgeStatus'), failure=$('trashPurgeError'), close=$('trashPurgeClose');
+        progress.max=total; progress.value=0; status.textContent=`0 von ${total} Dokumenten gelöscht …`; failure.hidden=true; close.disabled=true;
+        modal.show(); writing=true; suppressWaiting=true; clearTimeout(waitTimer); $('searchWaiting').hidden=true; let removed=0, processed=0;
+        try {
+            for (const item of snapshot.items) {
+                const step=await api('trashPurge',{confirm:'yes',id:String(item.id),revision:String(item.revision)},true);
+                removed+=Number(step.removed); ++processed; progress.value=processed;
+                status.textContent=`${processed} von ${total} Dokumenten verarbeitet · ${removed} gelöscht …`;
+            }
+            status.textContent=`${removed} Dokument(e) endgültig gelöscht.`;
+            notice(`${removed} Dokument(e) aus dem Papierkorb endgültig gelöscht.`);
+        } catch (problem) {
+            failure.textContent=`Nach ${removed} Dokument(en) angehalten: ${problem.message}`; failure.hidden=false;
+        } finally {
+            writing=false; close.disabled=false; state.dirty=false;
+            try { await metadata(); await search(); } catch (problem) { error(problem); }
+            suppressWaiting=false;
+        }
+    } catch (problem) { error(problem); }
+}
 let suppressDocumentClick=false;
 $('documentList').addEventListener('click',event => {
     if (suppressDocumentClick) { event.preventDefault(); event.stopPropagation(); return; }
@@ -430,10 +473,15 @@ const releasePointerDrag = drag => {
     try { drag.source.releasePointerCapture(drag.pointerId); } catch { /* Bereits freigegeben. */ }
     drag.source.classList.remove('is-dragging'); drag.preview?.remove(); clearDropTarget();
 };
-async function handleFolderDrop(ids,folder) {
+async function handleFolderDrop(ids,folder,kind='document') {
     ids=[...new Set(ids.map(Number))].filter(id => Number.isInteger(id) && id>0);
     if (!folder || !ids.length) return;
     if (writing || state.dirty) { error(new Error('Ungespeicherte Änderungen zuerst speichern oder verwerfen.')); return; }
+    if (kind==='inbound') {
+        try { await acceptanceDialog.open(ids[0],Number(folder.dataset.dropFolder)); }
+        catch (problem) { error(problem); }
+        return;
+    }
     const folderName=folder.querySelector('span')?.textContent || 'Ordner';
     const sourceFolderId=/^\d+$/.test(String(state.scope)) ? Number(state.scope) : null;
     const sourceFolder=sourceFolderId ? state.meta.folders.find(item => Number(item.id)===sourceFolderId) : null;
@@ -442,7 +490,7 @@ async function handleFolderDrop(ids,folder) {
     if (sourceFolder && sourceFolderId!==Number(folder.dataset.dropFolder)) {
         mode=await choiceDialog('Dokumente ablegen',`${count} nach „${folderName}“ kopieren oder aus „${sourceFolder.name}“ dorthin verschieben? Beim Verschieben bleiben weitere Ordnerverknüpfungen erhalten.`,'Kopieren','copy','Verschieben','move');
     } else if (state.scope==='inbox') {
-        mode=(await confirmDialog('Dokumente übernehmen',`${count} in „${folderName}“ übernehmen? Die Dokumente verlassen den Eingang und erscheinen danach unter „Alle Dokumente“.`,'Übernehmen')) ? 'copy' : false;
+        mode=(await confirmDialog('Aus Eingang verschieben',`${count} aus dem Eingang in „${folderName}“ verschieben? Danach erscheinen die Dokumente unter „Alle Dokumente“.`,'Verschieben')) ? 'copy' : false;
     } else {
         mode=(await confirmDialog('Dokumente verknüpfen',`${count} mit Ordner „${folderName}“ verknüpfen? Bestehende Verknüpfungen bleiben erhalten.`,'Verknüpfen')) ? 'copy' : false;
     }
@@ -456,11 +504,12 @@ async function handleFolderDrop(ids,folder) {
 }
 $('documentList').addEventListener('pointerdown',event => {
     if (event.button!==0 || event.pointerType==='touch' || state.scope==='trash') return;
-    const source=event.target.closest('.doc-open[data-document]');
-    const row=source?.closest('[data-drag-document]');
+    const source=event.target.closest('.doc-open[data-document], .doc-open[data-inbound]');
+    const row=source?.closest('[data-drag-document], [data-drag-inbound]');
     if (!source || !row) return;
-    const dragged=Number(row.dataset.dragDocument);
-    pointerDrag={pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,active:false,source,ids:state.selected.has(dragged)?[...state.selected]:[dragged]};
+    const inbound=Boolean(row.dataset.dragInbound);
+    const dragged=Number(inbound?row.dataset.dragInbound:row.dataset.dragDocument);
+    pointerDrag={pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,active:false,source,kind:inbound?'inbound':'document',ids:inbound?[dragged]:(state.selected.has(dragged)?[...state.selected]:[dragged])};
     try { source.setPointerCapture(event.pointerId); } catch { /* Dokumentweit weiterverfolgen. */ }
 });
 document.addEventListener('pointermove',event => {
@@ -476,7 +525,7 @@ document.addEventListener('pointerup',event => {
     pointerDrag=null; releasePointerDrag(drag);
     if (!drag.active) return;
     event.preventDefault(); suppressDocumentClick=true; setTimeout(() => { suppressDocumentClick=false; },0);
-    if (folder) void handleFolderDrop(drag.ids,folder);
+    if (folder) void handleFolderDrop(drag.ids,folder,drag.kind);
 });
 document.addEventListener('pointercancel',event => {
     if (!pointerDrag || pointerDrag.pointerId!==event.pointerId) return;
@@ -494,14 +543,6 @@ $('documentDetails').addEventListener('click',async event => {
     else if (event.target.closest('#linkButton')) link($('linkFolder').value);
     else if (event.target.closest('[data-invoice]')) {
         invoiceEditor.open(state.document,state.meta.accounting);
-    } else if (event.target.closest('#tagCreate')) {
-        const name = await inputDialog('Katalog-Tag anlegen', 'Name des neuen Tags');
-        if (name && await write('tag',{name},'Tag angelegt. Jetzt im Dokument auswählen.')) {
-            const selected=picker.values();
-            await metadata();
-            picker=new TagPicker($('liveTagPicker'),state.meta.tags.map(x => x.name),selected,() => { state.dirty = true; });
-            picker.input.value=name.trim(); picker.input.focus();
-        }
     }
 });
 async function reviewPreview(reference) {
@@ -525,12 +566,20 @@ $('folderForm').addEventListener('submit',async event => {
     if (await write('folder',{...values,operation:values.id?'move':'create'},'Ordner gespeichert.')) { bootstrap.Modal.getInstance($('folderModal')).hide(); await metadata(); if (state.filteredFolderCounts !== null) await search(); }
 });
 $('folderDelete').addEventListener('click',async () => {
-    if (!(await confirmDialog('Ordner löschen?', 'Nur leere Ordner ohne Unterordner können gelöscht werden. Verknüpfungen zu Papierkorb-Dokumenten werden entfernt.', 'Ordner löschen', true))) return;
-    if (await write('folder',{id:$('folderForm').elements.id.value,operation:'delete'},'Ordner gelöscht.')) {
-        bootstrap.Modal.getInstance($('folderModal')).hide(); await metadata();
-        if (!state.meta.folders.some(x => String(x.id) === state.scope)) { state.scope = 'all'; state.localScope = 'all'; }
-        await search();
-    }
+    if (writing) return;
+    try {
+        const id=$('folderForm').elements.id.value;
+        const preview=await api('folderDeletePreview',{id});
+        const affected=preview.documents===1?'1 Dokument':`${preview.documents} Dokumente`;
+        const message=`Ordner „${preview.name}“ und ${preview.folders} Unterordner endgültig löschen? ${affected} verlieren dadurch ihre Verknüpfung zu diesen Ordnern (Papierkorb-Dokumente mitgezählt). Die Dokumente selbst werden nicht gelöscht; Verknüpfungen zu anderen Ordnern bleiben erhalten.`;
+        if (!(await confirmDialog('Ordner und Unterordner löschen?',message,'Ordner löschen',true))) return;
+        if (await write('folder',{id,operation:'delete',confirm:'yes',fingerprint:preview.fingerprint},'Ordner gelöscht.')) {
+            bootstrap.Modal.getInstance($('folderModal')).hide(); await metadata();
+            if (!['all','inbox','unfiled','trash'].includes(String(state.localScope)) && !state.meta.folders.some(x => String(x.id) === String(state.localScope))) state.localScope='all';
+            if (!['all','inbox','unfiled','trash'].includes(String(state.scope)) && !state.meta.folders.some(x => String(x.id) === String(state.scope))) state.scope='all';
+            await search();
+        }
+    } catch (problem) { error(problem); }
 });
 function cancelAutoSearch() {
     clearTimeout(autoSearchTimer);
@@ -571,14 +620,14 @@ $('resetColumns').addEventListener('click',() => layout?.reset());
 $('themeToggle').addEventListener('click',() => { document.querySelector('.workspace-menu').open = false; preferences.theme = normalizeTheme(preferences.theme); preferences.theme.mode = document.documentElement.dataset.bsTheme === 'dark' ? 'light' : 'dark'; preferences.mode = preferences.theme.mode; theme(); if (adminOverlay.classList.contains('show')) syncOverlayTheme(); savePreferences(); });
 const adminOverlay = $('adminOverlay');
 const adminFrame = $('adminOverlayFrame');
-const adminTitles = {choose:'Mandant auswählen',users:'Benutzer',account:'Mein Konto',accounting:'Buchhaltung'};
+const adminTitles = {choose:'Mandant auswählen',users:'Benutzer',account:'Mein Konto',accounting:'Buchhaltung',evaluation:'Auswertung',settings:'Einstellungen'};
 function syncOverlayTheme() {
     const frameRoot = adminFrame.contentDocument?.documentElement;
     if (!frameRoot) return;
     const source = getComputedStyle(document.documentElement);
-    for (const name of ['--o8-accent','--o8-background','--o8-surface','--o8-text','--o8-font-scale','--bs-body-font-family']) frameRoot.style.setProperty(name,source.getPropertyValue(name));
+    for (const name of ['--o8-accent','--o8-on-accent','--o8-background','--o8-surface','--o8-text','--o8-font-scale','--bs-body-font-family']) frameRoot.style.setProperty(name,source.getPropertyValue(name));
     frameRoot.dataset.bsTheme = document.documentElement.dataset.bsTheme;
-    if (adminFrame.contentDocument.body) adminFrame.contentDocument.body.dataset.bsTheme = document.documentElement.dataset.bsTheme;
+    frameRoot.dataset.density = document.documentElement.dataset.density;
 }
 document.querySelectorAll('[data-admin-overlay]').forEach(button => button.addEventListener('click',async () => {
     if (!(await discard())) return;

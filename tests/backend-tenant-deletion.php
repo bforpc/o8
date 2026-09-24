@@ -1,0 +1,126 @@
+<?php
+declare(strict_types=1);
+require dirname(__DIR__).'/app/bootstrap.php';
+use O8\Core\Runtime;
+use O8\Install\Migrator;
+use O8\Auth\{AuthService,BootstrapService,Actor};
+use O8\Admin\{Administration,TenantDeletion};
+if (PHP_SAPI!=='cli' || !preg_match('#^/tmp/o8-m2-test\.[A-Za-z0-9]+/db\.sock$#D',$argv[1]??'')) exit("Isolated temporary test socket required.\n");
+$tmp=dirname($argv[1]); $project=dirname(__DIR__);
+$db=new PDO('mysql:unix_socket='.$argv[1].';charset=utf8mb4','root','',[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC,PDO::ATTR_EMULATE_PREPARES=>false]);
+$testDatabase='deletion_test_'.bin2hex(random_bytes(4));
+$db->exec('CREATE DATABASE '.$testDatabase); $db->exec('USE '.$testDatabase);
+$runtime=new Runtime($tmp.'/delete-runtime'); $identity=$runtime->identity();
+(new Migrator($db,$project.'/database/migrations'))->install($identity);
+$auth=new AuthService($db,$runtime,$identity['key']); $adminService=new Administration($db); $deletion=new TenantDeletion($db,$project); $checks=0;
+function check(bool $ok,string $label): void { global $checks; if (!$ok) throw new RuntimeException('FAIL '.$label); ++$checks; echo "PASS $label\n"; }
+function rejects(callable $call,string $label): void { try { $call(); } catch (RuntimeException|InvalidArgumentException $e) { check(true,$label); return; } check(false,$label); }
+function sql(string $query,array $params=[]): PDOStatement { global $db; $s=$db->prepare($query); $s->execute($params); return $s; }
+$session=$auth->login('operator','admin','owndms8','test',$runtime->issueSetupToken());
+$session=$auth->changePassword($auth->actor($session),'owndms8','operator-secret');
+$uuid=(new BootstrapService($db))->complete($auth->actor($session),'Operator','op@example.test','Delete target');
+$operator=$auth->actor($session);
+$tenantSession=$auth->login('account','admin','operator-secret','test'); $tenantAdmin=$auth->actor($tenantSession); $id=$tenantAdmin->tenantId();
+$otherUuid=$adminService->createTenant($operator,'Keep tenant','',['existing_login'=>'admin']);
+$other=(int)sql('SELECT id FROM tenants WHERE public_id=?',[$otherUuid])->fetchColumn();
+$base=$tmp.'/'.$testDatabase.'-documents'; mkdir($base); mkdir($base.'/'.$uuid); mkdir($base.'/'.$otherUuid);
+file_put_contents($base.'/'.$otherUuid.'/keep.txt','other tenant file');
+file_put_contents($tmp.'/outside.txt','outside must survive');
+symlink($tmp.'/outside.txt',$base.'/'.$uuid.'/outside-link');
+mkdir($base.'/'.$uuid.'/thumbnails'); file_put_contents($base.'/'.$uuid.'/thumbnails/extra.txt','untracked derivative');
+sql("INSERT INTO storage_locations (tenant_id,storage_key,name,root_path,linux_owner,linux_group) VALUES (?,'main','Main',?,'www-data','www-data'),(?,'main','Main',?,'www-data','www-data')",[$id,$base,$other,$base]);
+$uid=$tenantAdmin->id(); $firstDoc=0;
+$db->beginTransaction();
+for ($i=0;$i<450;$i++) {
+    sql("INSERT INTO documents (tenant_id,owner_id,title,source_type,in_inbox,deleted_at) VALUES (?,?,'Document','test',?,?)",[$id,$uid,$i%2,$i%3===0?'2026-01-01 00:00:00':null]); $doc=(int)$db->lastInsertId(); $firstDoc=$firstDoc?:$doc;
+    sql("INSERT INTO document_files (tenant_id,document_id,role,storage_key,relative_path,original_name,mime_type) VALUES (?,?,'original','main',?,'file.txt','text/plain')",[$id,$doc,$i.'.txt']);
+    file_put_contents($base.'/'.$uuid.'/'.$i.'.txt','owned fixture');
+}
+$db->commit();
+sql("INSERT INTO folders (tenant_id,owner_id,name) VALUES (?,?,'Parent')",[$id,$uid]); $folder=(int)$db->lastInsertId();
+sql("INSERT INTO folders (tenant_id,owner_id,name,parent_id) VALUES (?,?,'Child',?)",[$id,$uid,$folder]); $child=(int)$db->lastInsertId();
+sql('UPDATE folders SET parent_id=? WHERE id=?',[$child,$folder]); // Deliberate parent cycle: must still purge.
+sql('INSERT INTO folder_documents (tenant_id,folder_id,document_id) VALUES (?,?,?)',[$id,$child,$firstDoc]);
+sql("INSERT INTO tags (tenant_id,name,normalized_name) VALUES (?,'Tag','tag')",[$id]); $tag=(int)$db->lastInsertId();
+sql('INSERT INTO document_tags VALUES (?,?,?)',[$id,$firstDoc,$tag]);
+sql("INSERT INTO accounting_accounts (tenant_id,code,name) VALUES (?,'123','Account')",[$id]); $account=(int)$db->lastInsertId();
+sql('INSERT INTO accounting_vat_rates (tenant_id,rate) VALUES (?,19)',[$id]);
+sql("INSERT INTO document_invoices (tenant_id,document_id,sender,invoice_number,invoice_date,entry_mode,account_id,net,tax,gross) VALUES (?,?,'Sender','1','2026-01-01','items',?,100,19,119)",[$id,$firstDoc,$account]);
+sql('INSERT INTO invoice_items (tenant_id,document_id,position_number,quantity,unit_net,unit_gross,account_id,tax_rate,net,tax,gross) VALUES (?,?,1,1,100,119,?,19,100,19,119)',[$id,$firstDoc,$account]);
+sql('INSERT INTO invoice_tax_totals VALUES (?,?,19,19)',[$id,$firstDoc]);
+sql("INSERT INTO accounting_entries (tenant_id,document_id,account_code,entry_type,status) VALUES (?,?,'123','invoice','open')",[$id,$firstDoc]);
+sql("INSERT INTO user_settings (tenant_id,user_id,setting_key,value_json) VALUES (?,?,'appearance','{}')",[$id,$uid]);
+sql("INSERT INTO settings (tenant_id,setting_key,value_json,updated_by) VALUES (?,'general','{}',?)",[$id,$uid]);
+sql("INSERT INTO tenant_licenses (tenant_id,signed_envelope) VALUES (?,'fixture')",[$id]);
+sql("INSERT INTO permissions VALUES ('test','Test')");
+sql("INSERT INTO role_permissions VALUES (?,'admin','test','all')",[$id]);
+sql("INSERT INTO source_credentials (tenant_id,ciphertext,key_id,crypto_version) VALUES (?,'fixture','test',1)",[$id]); $credential=(int)$db->lastInsertId();
+sql("INSERT INTO import_sources (tenant_id,owner_id,kind,name,config_json,credential_id) VALUES (?,?,'imap','Mailbox','{}',?)",[$id,$uid,$credential]); $source=(int)$db->lastInsertId();
+sql("INSERT INTO source_items (tenant_id,source_id,remote_key_hash,document_id) VALUES (?,?,?,?)",[$id,$source,str_repeat('a',64),$firstDoc]);
+$sourceItem=(int)$db->lastInsertId();
+sql("INSERT INTO inbound_items (tenant_id,source_item_id,owner_id,original_name,mime_type,size_bytes,ai_status) VALUES (?,?,?,'fixture.pdf','application/pdf',8,'ready')",[$id,$sourceItem,$uid]); $inboundItem=(int)$db->lastInsertId();
+sql("INSERT INTO inbound_ai_runs (tenant_id,inbound_item_id,requested_by,origin,status,result_json) VALUES (?,?,?,'existing_json','ready','{}')",[$id,$inboundItem,$uid]);
+sql("INSERT INTO background_jobs (tenant_id,owner_id,source_id,kind,status,payload_json) VALUES (?,?,?,'import','running','{}')",[$id,$uid,$source]);
+sql("INSERT INTO audit_events (tenant_id,actor_id,action,entity_type,entity_id) VALUES (?,?,'test','document',?)",[$id,$uid,(string)$firstDoc]);
+sql("INSERT INTO migration_map (tenant_id,source_system,entity_type,source_id,target_id) VALUES (?,'o7','document',1,?)",[$id,$firstDoc]);
+$tables=$db->query("SELECT table_name FROM information_schema.columns WHERE table_schema=DATABASE() AND column_name='tenant_id'")->fetchAll(PDO::FETCH_COLUMN);
+$adminService->inviteUser($tenantAdmin,'user');
+$adminService->createUser($tenantAdmin,['login'=>'orphan','name'=>'Orphan','email'=>'orphan@example.test','password'=>'secret6'],'user');
+$otherCounts=[]; foreach ($tables as $table) $otherCounts[$table]=(int)sql("SELECT COUNT(*) FROM $table WHERE tenant_id=?",[$other])->fetchColumn();
+check($deletion->preview($operator,$id)['documents']===450,'preview counts inbox and trash too');
+rejects(fn()=>$deletion->preview($tenantAdmin,$id),'tenant admin cannot prepare deletion');
+rejects(fn()=>$deletion->start($tenantAdmin,$id,$uuid,'Delete target'),'tenant admin cannot delete tenant');
+rejects(fn()=>$deletion->start($operator,$id,$otherUuid,'Delete target'),'UUID mismatch rejected');
+rejects(fn()=>$deletion->start($operator,$id,$uuid,'Wrong name'),'name mismatch rejected');
+$db->exec('CREATE TABLE unknown_tenant_data (tenant_id BIGINT UNSIGNED)');
+rejects(fn()=>$deletion->start($operator,$id,$uuid,'Delete target'),'unknown tenant table fails closed before deleting');
+$db->exec('DROP TABLE unknown_tenant_data'); // Only this temporary test table.
+sql("UPDATE document_files SET relative_path='../outside.txt' WHERE document_id=?",[$firstDoc]);
+rejects(fn()=>$deletion->start($operator,$id,$uuid,'Delete target'),'traversal path rejected before deleting');
+sql("UPDATE document_files SET relative_path='0.txt' WHERE document_id=?",[$firstDoc]);
+check(is_file($base.'/'.$uuid.'/0.txt') && $auth->actor($tenantSession)!==null,'preflight rejection leaves files and access unchanged');
+sql("INSERT INTO storage_locations (tenant_id,storage_key,name,root_path,linux_owner,linux_group) VALUES (?,'nested','Nested',?,'www-data','www-data')",[$id,$base.'/'.$uuid]);
+rejects(fn()=>$deletion->start($operator,$id,$uuid,'Delete target'),'overlapping own storage roots rejected');
+sql("DELETE FROM storage_locations WHERE tenant_id=? AND storage_key='nested'",[$id]);
+sql("INSERT INTO storage_locations (tenant_id,storage_key,name,root_path,linux_owner,linux_group) VALUES (?,'nested','Nested',?,'www-data','www-data')",[$other,$base.'/'.$uuid]);
+rejects(fn()=>$deletion->start($operator,$id,$uuid,'Delete target'),'nested foreign storage rejected');
+sql("DELETE FROM storage_locations WHERE tenant_id=? AND storage_key='nested'",[$other]);
+rename($base.'/'.$uuid,$base.'/'.$uuid.'-held');
+rejects(fn()=>$deletion->start($operator,$id,$uuid,'Delete target'),'missing storage with file references rejected');
+rename($base.'/'.$uuid.'-held',$base.'/'.$uuid);
+$job=$deletion->start($operator,$id,$uuid,'Delete target');
+check($auth->actor($tenantSession)->kind==='account','starting deletion immediately revokes tenant access');
+rejects(fn()=>$adminService->updateTenant($operator,$id,'Revive','',true),'deleting tenant cannot be reactivated');
+rejects(fn()=>$deletion->step($tenantAdmin,$id),'tenant admin cannot execute deletion steps');
+check($deletion->start($operator,$id,$uuid,'Delete target')===$job,'duplicate start preserves existing progress');
+rename($base.'/'.$uuid,$base.'/'.$uuid.'-held'); symlink($base.'/'.$otherUuid,$base.'/'.$uuid);
+rejects(fn()=>$deletion->step($operator,$id),'root symlink substitution cannot delete another tenant');
+unlink($base.'/'.$uuid); rename($base.'/'.$uuid.'-held',$base.'/'.$uuid);
+check($deletion->job($operator,$id)!==null,'failed step retains resumable job');
+$job=$deletion->step($operator,$id);
+check($job['phase']==='files' && $job['files_removed']<=200,'file work is bounded per request');
+$deletion=new TenantDeletion($db,$project); $steps=1;
+while ($job['phase']!=='done' && $steps<100) { $job=$deletion->step($operator,$id); ++$steps; }
+check($job['phase']==='done' && $steps>3,'large tenant deletion completes across multiple steps');
+foreach ($tables as $table) {
+    check((int)sql("SELECT COUNT(*) FROM $table WHERE tenant_id=?",[$id])->fetchColumn()===0,$table.' fully purged');
+    check((int)sql("SELECT COUNT(*) FROM $table WHERE tenant_id=?",[$other])->fetchColumn()===$otherCounts[$table],$table.' other tenant unchanged');
+}
+check((int)$db->query("SELECT COUNT(*) FROM accounts WHERE login='admin'")->fetchColumn()===1,'shared account survives tenant deletion');
+check((int)$db->query("SELECT COUNT(*) FROM accounts WHERE login='orphan'")->fetchColumn()===0,'orphan account removed');
+check(!is_dir($base.'/'.$uuid),'entire tenant tree including derivatives removed');
+check(file_get_contents($base.'/'.$otherUuid.'/keep.txt')==='other tenant file','other tenant files preserved');
+check(file_get_contents($tmp.'/outside.txt')==='outside must survive','symlink target outside tenant preserved');
+check((int)sql('SELECT COUNT(*) FROM tenants WHERE id=?',[$id])->fetchColumn()===0,'tenant itself removed');
+check($deletion->job($operator,$id)===null,'completed job removed');
+check((int)$db->query('SELECT COUNT(*) FROM platform_operators')->fetchColumn()===1,'operator remains available');
+check((int)$db->query('SELECT COUNT(*) FROM permissions')->fetchColumn()===1,'global permissions preserved');
+check((int)$db->query("SELECT COUNT(*) FROM platform_audit_events WHERE tenant_id IS NULL AND action='tenant.deleted'")->fetchColumn()===1,'minimal installation deletion receipt retained');
+rejects(fn()=>$deletion->step($operator,$id),'completed job cannot run again');
+$job=$deletion->start($operator,$other,$otherUuid,'Keep tenant'); $steps=0;
+while ($job['phase']!=='done' && ++$steps<100) $job=$deletion->step($operator,$other);
+check($job['phase']==='done' && (int)$db->query('SELECT COUNT(*) FROM tenants')->fetchColumn()===0,'last remaining synthetic tenant can also be removed');
+check((int)$db->query('SELECT COUNT(*) FROM accounts')->fetchColumn()===0,'last membership deletion removes accounts');
+check((int)$db->query('SELECT COUNT(*) FROM account_identifiers')->fetchColumn()===0,'orphan identifiers removed');
+check($auth->actor($session)!==null,'operator login survives removal of last tenant');
+echo "$checks deletion checks passed; only disposable test tenant data was deleted.\n";
