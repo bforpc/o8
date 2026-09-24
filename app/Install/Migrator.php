@@ -99,7 +99,7 @@ final class Migrator
             } elseif (str_starts_with($statement,'ALTER TABLE users MODIFY account_id')) {
                 $exists=$this->db->query("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='users' AND column_name='password_hash'")->fetchColumn();
                 if ($exists) $this->db->exec($statement);
-            } elseif (preg_match('/^ALTER TABLE (storage_locations|documents|import_sources|background_jobs) ADD COLUMN (identity_json|revision|error_code) /',$statement,$match)) {
+            } elseif (preg_match('/^ALTER TABLE (storage_locations|documents|import_sources|background_jobs) ADD COLUMN (identity_json|revision|error_code|enforce_file_attributes) /',$statement,$match)) {
                 $s=$this->db->prepare('SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=? AND column_name=?'); $s->execute([$match[1],$match[2]]);
                 if (!$s->fetchColumn()) $this->db->exec($statement);
             } elseif (preg_match('/^ALTER TABLE ([a-z_]+) ADD (?:UNIQUE )?INDEX ([a-z_]+) /',$statement,$match)) {

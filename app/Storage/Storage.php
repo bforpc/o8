@@ -20,19 +20,26 @@ final class Storage
         if (!is_readable($path) || !is_writable($path) || !is_executable($path)) throw new \RuntimeException('Storage nicht lesbar, schreibbar oder zugänglich. Mount und Webserver-Rechte prüfen.');
         return $path;
     }
+    private function identityNames(string $owner,string $group): void
+    {
+        if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_.-]{0,99}\$?$/D',$owner) || !preg_match('/^[a-zA-Z_][a-zA-Z0-9_.-]{0,99}\$?$/D',$group)) throw new \RuntimeException('Gültigen Linux-Besitzer und Gruppe angeben.');
+    }
     private function identities(string $owner,string $group): array
     {
+        $this->identityNames($owner,$group);
         if (!function_exists('posix_getpwnam')) throw new \RuntimeException('PHP-POSIX wird für die Linux-Rechteprüfung benötigt.');
-        if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_.-]{0,99}\$?$/D',$owner) || !preg_match('/^[a-zA-Z_][a-zA-Z0-9_.-]{0,99}\$?$/D',$group)) throw new \RuntimeException('Gültigen Linux-Besitzer und Gruppe angeben.');
         $user=posix_getpwnam($owner); $grp=posix_getgrnam($group);
         if (!$user || !$grp) throw new \RuntimeException('Linux-Besitzer oder Gruppe existiert nicht auf diesem Server.');
         return [(int)$user['uid'],(int)$grp['gid']];
     }
     public function permissions(string $path,array $location,bool $directory=false): void
     {
-        [$uid,$gid]=$this->identities($location['linux_owner'],$location['linux_group']); $mode=$directory?0750:0640;
         clearstatcache(true,$path); $s=lstat($path);
         if (!$s || is_link($path)) throw new \RuntimeException('Unsicheres Storage-Objekt.');
+        // SMB/NAS filesystems may intentionally reject chown/chgrp/chmod.  They still
+        // have to pass the same safe-path and functional read/write/rename/delete probes.
+        if (!(bool)($location['enforce_file_attributes']??true)) return;
+        [$uid,$gid]=$this->identities($location['linux_owner'],$location['linux_group']); $mode=$directory?0750:0640;
         if (($s['uid']!==$uid && !@chown($path,$uid)) || ($s['gid']!==$gid && !@chgrp($path,$gid)) || !@chmod($path,$mode)) throw new \RuntimeException('Besitzer, Gruppe oder Dateirechte können nicht gesetzt werden. Mount-Optionen/Webserver-Rechte prüfen.');
         clearstatcache(true,$path); $s=lstat($path);
         if (!$s || $s['uid']!==$uid || $s['gid']!==$gid || ($s['mode']&0777)!==$mode) throw new \RuntimeException('Storage übernimmt die benötigten Linux-Rechte nicht.');
@@ -40,7 +47,7 @@ final class Storage
     public function locations(Actor $actor): array
     {
         (new Access($this->db))->operator($actor);
-        return $this->db->query("SELECT t.id,t.name,t.public_id,t.active,s.root_path,s.linux_owner,s.linux_group,s.identity_json FROM tenants t LEFT JOIN storage_locations s ON s.tenant_id=t.id AND s.storage_key='main' ORDER BY t.name,t.id")->fetchAll();
+        return $this->db->query("SELECT t.id,t.name,t.public_id,t.active,s.root_path,s.linux_owner,s.linux_group,s.enforce_file_attributes,s.identity_json FROM tenants t LEFT JOIN storage_locations s ON s.tenant_id=t.id AND s.storage_key='main' ORDER BY t.name,t.id")->fetchAll();
     }
     public function location(Actor $actor): ?array
     {
@@ -60,9 +67,9 @@ final class Storage
             || is_link($marker) || !is_file($marker) || !hash_equals($saved['marker'],(string)@file_get_contents($marker))) throw new \RuntimeException('Storage-Identität geändert oder Mount fehlt. Zugriff gesperrt; Betreiber muss die Ablage prüfen.');
         return [$base,$target];
     }
-    public function configure(Actor $actor,int $tenant,string $path,string $owner,string $group): void
+    public function configure(Actor $actor,int $tenant,string $path,string $owner,string $group,bool $enforceFileAttributes=true): void
     {
-        $actor->requireOperator(); $this->identities($owner,$group);
+        $actor->requireOperator(); $this->identityNames($owner,$group); if ($enforceFileAttributes) $this->identities($owner,$group);
         $lock='o8.storage.'.substr(hash('sha256',(string)$this->db->query('SELECT DATABASE()')->fetchColumn()),0,40);
         $s=$this->db->prepare('SELECT GET_LOCK(?,0)'); $s->execute([$lock]);
         if ((int)$s->fetchColumn()!==1) throw new \RuntimeException('Storage wird gerade geändert. Bitte erneut versuchen.');
@@ -87,8 +94,14 @@ final class Storage
                 if (!@mkdir($target,0750)) throw new \RuntimeException('Mandantenverzeichnis kann nicht angelegt werden.');
                 $created=$target;
             }
-            $location=['linux_owner'=>$owner,'linux_group'=>$group];
+            $location=['linux_owner'=>$owner,'linux_group'=>$group,'enforce_file_attributes'=>$enforceFileAttributes];
             if ($created) $this->permissions($target,$location,true);
+            elseif ($enforceFileAttributes) {
+                // Enabling strict mode on an existing SMB/NAS assignment must verify
+                // the tenant root and marker before the new policy is persisted.
+                $this->permissions($target,$location,true);
+                $this->permissions($target.'/.o8-storage',$location);
+            }
             $probe=$target.'/.probe-'.bin2hex(random_bytes(16)); $f=@fopen($probe,'x+b');
             if (!$f) throw new \RuntimeException('Storage-Schreibtest fehlgeschlagen.');
             try {
@@ -110,8 +123,8 @@ final class Storage
                 $this->permissions($marker,$location);
             }
             $b=stat($base); $d=stat($target); $identity=['base_dev'=>$b['dev'],'base_ino'=>$b['ino'],'tenant_dev'=>$d['dev'],'tenant_ino'=>$d['ino'],'marker'=>$token];
-            $s=$this->db->prepare("INSERT INTO storage_locations (tenant_id,storage_key,name,root_path,linux_owner,linux_group,identity_json) VALUES (?,'main','Dokumentablage',?,?,?,?) ON DUPLICATE KEY UPDATE identity_json=VALUES(identity_json),updated_at=UTC_TIMESTAMP()");
-            $s->execute([$tenant,$base,$owner,$group,json_encode($identity,JSON_THROW_ON_ERROR)]);
+            $s=$this->db->prepare("INSERT INTO storage_locations (tenant_id,storage_key,name,root_path,linux_owner,linux_group,enforce_file_attributes,identity_json) VALUES (?,'main','Dokumentablage',?,?,?,?,?) ON DUPLICATE KEY UPDATE enforce_file_attributes=VALUES(enforce_file_attributes),identity_json=VALUES(identity_json),updated_at=UTC_TIMESTAMP()");
+            $s->execute([$tenant,$base,$owner,$group,$enforceFileAttributes?1:0,json_encode($identity,JSON_THROW_ON_ERROR)]);
             $s=$this->db->prepare("INSERT INTO platform_audit_events (operator_id,tenant_id,action) VALUES (?,?,'storage.checked')"); $s->execute([$actor->id(),$tenant]);
             $this->db->commit();
         } catch (\Throwable $e) {
@@ -158,16 +171,18 @@ final class Storage
             if (is_link($target) || realpath($target)!==$target || !is_dir($target) || !is_readable($target) || !is_writable($target) || !is_executable($target)
                 || is_link($marker) || !is_file($marker) || !hash_equals($saved['marker'],(string)@file_get_contents($marker)))
                 throw new \RuntimeException('Ziel enthält nicht das geprüfte Mandantenverzeichnis samt unveränderter .o8-storage-Markierung. Keine Pfadänderung vorgenommen.');
-            [$uid,$gid]=$this->identities($old['linux_owner'],$old['linux_group']);
-            $dir=lstat($target); $mark=lstat($marker);
-            if (!$dir || !$mark || $dir['uid']!==$uid || $dir['gid']!==$gid || $mark['uid']!==$uid || $mark['gid']!==$gid)
-                throw new \RuntimeException('Besitzer oder Gruppe am Ziel stimmen nicht mit der geprüften Ablage überein.');
+            if ((bool)($old['enforce_file_attributes']??true)) {
+                [$uid,$gid]=$this->identities($old['linux_owner'],$old['linux_group']);
+                $dir=lstat($target); $mark=lstat($marker);
+                if (!$dir || !$mark || $dir['uid']!==$uid || $dir['gid']!==$gid || $mark['uid']!==$uid || $mark['gid']!==$gid)
+                    throw new \RuntimeException('Besitzer oder Gruppe am Ziel stimmen nicht mit der geprüften Ablage überein.');
+            }
             if (is_link($target.'/inbound')) throw new \RuntimeException('Eingangsverzeichnis am Ziel darf kein Symlink sein.');
             foreach (['document_files','inbound_files'] as $table) {
                 $s=$this->db->prepare("SELECT relative_path,size_bytes FROM $table WHERE tenant_id=? AND storage_key='main'"); $s->execute([$tenant]);
                 while ($file=$s->fetch()) {
                     $relative=$file['relative_path'];
-                    if (!preg_match('#^(?:inbound/)?[a-f0-9]{48}\.(?:pdf|jpg|png|json|txt)$#D',$relative)
+                    if (!preg_match('#^(?:inbound/)?[a-f0-9]{48}\.(?:pdf|jpg|png|odt|json|txt)$#D',$relative)
                         || is_link($target.'/'.$relative) || !is_file($target.'/'.$relative)
                         || ($file['size_bytes']!==null && filesize($target.'/'.$relative)!==(int)$file['size_bytes']))
                         throw new \RuntimeException('Mindestens eine verwaltete Datei fehlt am Ziel oder hat eine andere Größe. Keine Pfadänderung vorgenommen.');

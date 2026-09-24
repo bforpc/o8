@@ -61,7 +61,7 @@ final class StorageRepair
             if (@file_put_contents($marker, $newMarker, LOCK_EX) === false) {
                 return ['success' => false, 'error' => 'Kann Storage-Markierung nicht schreiben.'];
             }
-            @chmod($marker, 0640);
+            (new Storage($this->db, $this->root))->permissions($marker,$location);
             $markerContent = $newMarker;
         } else {
             $newMarker = trim($markerContent);

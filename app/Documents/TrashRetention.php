@@ -63,7 +63,7 @@ final class TrashRetention
     }
     private function relative(string $path): void
     {
-        if (!preg_match('/^[a-f0-9]{48}\.(?:pdf|jpg|png|json|txt)$/D',$path)) throw new \RuntimeException('Unsicherer Dokumentdateipfad; Papierkorb-Löschung angehalten.');
+        if (!preg_match('/^[a-f0-9]{48}\.(?:pdf|jpg|png|odt|json|txt)$/D',$path)) throw new \RuntimeException('Unsicherer Dokumentdateipfad; Papierkorb-Löschung angehalten.');
     }
     private function pending(): ?array
     {

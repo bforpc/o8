@@ -1,4 +1,7 @@
+/tools/*
+!/tools/O7Import.php
 /o7
+/runcomit.sh
 /runcodex.sh
 /runopencode.sh
 /commit.sh

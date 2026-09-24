@@ -20,14 +20,11 @@ final class Evaluation
         $accountIds = $this->accountIds($actor, $input['accounts'] ?? []);
         [$scope, $params] = $actor->documentScope('d');
         $where=$scope.' AND d.deleted_at IS NULL AND d.in_inbox=0';
-        if (($input['folder']??'')!=='') {
-            $folder=(string)$input['folder'];
-            if (!ctype_digit($folder) || (int)$folder<1) throw new \RuntimeException('Ungültiger Ordnerfilter.');
-            $s=$this->db->prepare('SELECT owner_id FROM folders WHERE tenant_id=? AND id=?');
-            $s->execute([$actor->tenantId(),$folder]); $owner=$s->fetchColumn();
-            if ($owner===false || ($actor->row['role']!=='admin' && (int)$owner!==$actor->id())) throw new \RuntimeException('Ordner nicht verfügbar.');
-            $where.=' AND EXISTS (SELECT 1 FROM folder_documents fd WHERE fd.tenant_id=d.tenant_id AND fd.document_id=d.id AND fd.folder_id=?)';
-            $params[]=$folder;
+        $folderIds=$this->folderIds($actor,$input);
+        if ($folderIds) {
+            $marks=implode(',',array_fill(0,count($folderIds),'?'));
+            $where.=" AND EXISTS (SELECT 1 FROM folder_documents fd WHERE fd.tenant_id=d.tenant_id AND fd.document_id=d.id AND fd.folder_id IN ($marks))";
+            array_push($params,...$folderIds);
         }
         if (($input['includeExpired']??'')!=='1') $where.=' AND d.expired=0';
         if (($input['includeNotSearchable']??'')!=='1') $where.=' AND d.searchable=1';
@@ -173,7 +170,7 @@ final class Evaluation
             $docCount = (int)$row['document_count'];
 
             if (!isset($months[$month])) {
-                $months[$month] = ['net' => [], 'tax' => [], 'gross' => [], 'currencies' => []];
+                $months[$month] = ['net' => [], 'tax' => [], 'gross' => [], 'currencies' => [], 'document_count' => 0];
             }
             if (!isset($accounts[$accountId])) {
                 $accounts[$accountId] = ['code' => $accountCode, 'name' => $accountName, 'totals' => []];
@@ -194,6 +191,7 @@ final class Evaluation
             $months[$month]['tax'][$key] += $tax;
             $months[$month]['gross'][$key] += $gross;
             $months[$month]['accounts'][$key] = ['id' => $accountId, 'code' => $accountCode, 'name' => $accountName];
+            $months[$month]['document_count'] += $docCount;
 
             if (!isset($accounts[$accountId]['totals'][$currency])) {
                 $accounts[$accountId]['totals'][$currency] = ['net' => 0, 'tax' => 0, 'gross' => 0, 'docCount' => 0];
@@ -276,6 +274,31 @@ final class Evaluation
         $found=array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
         if (count($found)!==count($ids)) throw new \RuntimeException('Buchungskonto nicht verfügbar.');
         return $found;
+    }
+
+    /** @return list<int> */
+    private function folderIds(Actor $actor,array $input): array
+    {
+        $values=$input['folders']??[];
+        if ($values==='' || $values===null) $values=[];
+        if (!is_array($values)) throw new \RuntimeException('Ungültige Ordnerauswahl.');
+        // Keep the former single-folder parameter compatible with existing saved URLs/API calls.
+        if (($input['folder']??'')!=='') $values[]=$input['folder'];
+        if (!$values) return [];
+        if (count($values)>10000) throw new \RuntimeException('Zu viele Ordner ausgewählt.');
+        $ids=[];
+        foreach ($values as $value) {
+            if (!is_scalar($value) || !ctype_digit((string)$value) || (int)$value<1) throw new \RuntimeException('Ungültige Ordnerauswahl.');
+            $ids[(int)$value]=(int)$value;
+        }
+        $ids=array_values($ids);
+        $marks=implode(',',array_fill(0,count($ids),'?'));
+        $s=$this->db->prepare("SELECT id,owner_id FROM folders WHERE tenant_id=? AND id IN ($marks)");
+        $s->execute([$actor->tenantId(),...$ids]);
+        $folders=$s->fetchAll();
+        if (count($folders)!==count($ids)) throw new \RuntimeException('Ordner nicht verfügbar.');
+        foreach ($folders as $folder) if ($actor->row['role']!=='admin' && (int)$folder['owner_id']!==$actor->id()) throw new \RuntimeException('Ordner nicht verfügbar.');
+        return $ids;
     }
 
     private function documentTypes(array $types): array

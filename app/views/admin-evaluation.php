@@ -1,6 +1,6 @@
 <section class="evaluation-view" aria-labelledby="evaluationOverlayTitle">
 <h1 class="h4" id="evaluationOverlayTitle">Buchhaltungsauswertung</h1>
-<?php $detailActive=false; foreach (['dateFrom','dateTo','amountFrom','amountTo','invoiceNumbers','accountCode','documentType','folder','tag','notTag','owner','includeExpired','includeNotSearchable'] as $key) if (($filter[$key]??'')!=='') $detailActive=true; if (($filter['accounts']??[])!==[] || $filter['resultView']!=='all' || $filter['sort']!=='newest' || $filter['size']!=='all') $detailActive=true; ?>
+<?php $detailActive=false; foreach (['dateFrom','dateTo','amountFrom','amountTo','invoiceNumbers','accountCode','documentType','folder','tag','notTag','owner','includeExpired','includeNotSearchable'] as $key) if (($filter[$key]??'')!=='') $detailActive=true; if (($filter['folders']??[])!==[] || ($filter['accounts']??[])!==[] || $filter['resultView']!=='all' || $filter['sort']!=='newest' || $filter['size']!=='all') $detailActive=true; ?>
 <form id="evaluationFilter" method="get" class="evaluation-filter">
 <input type="hidden" name="section" value="evaluation">
 <?php if (($_GET['overlay']??'')==='1'): ?><input type="hidden" name="overlay" value="1"><?php endif ?>
@@ -17,7 +17,26 @@
 <label class="form-label">Rechnungsnummern<input class="form-control" name="invoiceNumbers" value="<?= h($filter['invoiceNumbers']) ?>" placeholder="z. B. RE-2026; 0842"></label>
 <label class="form-label">Buchungskonto<input class="form-control" name="accountCode" maxlength="32" value="<?= h($filter['accountCode']) ?>"></label>
 <label class="form-label">Dokumentart<select class="form-select" name="documentType"><?php foreach ([''=>'Alle Arten','document'=>'Dokument','invoice'=>'Rechnung','credit_note'=>'Gutschrift','contract'=>'Vertrag','certificate'=>'Bescheinigung'] as $value=>$label): ?><option value="<?= h($value) ?>" <?= $filter['documentType']===$value?'selected':'' ?>><?= h($label) ?></option><?php endforeach ?></select></label>
-<label class="form-label">Ordner<select class="form-select" name="folder"><option value="">Alle Ordner</option><?php foreach ($folders as $folder): ?><option value="<?= (int)$folder['id'] ?>" <?= $filter['folder']===(string)$folder['id']?'selected':'' ?>><?= h($folderLabels[(int)$folder['id']]) ?></option><?php endforeach ?></select></label>
+<?php
+$folderIds=[]; foreach ($folders as $folder) $folderIds[(int)$folder['id']]=true;
+$folderChildren=[];
+foreach ($folders as $folder) {
+    $parent=(int)($folder['parent_id']??0);
+    if ($parent<1 || !isset($folderIds[$parent]) || $parent===(int)$folder['id']) $parent=0;
+    $folderChildren[$parent][]=$folder;
+}
+$selectedFolders=[]; foreach ($filter['folders'] as $id) if (is_scalar($id) && ctype_digit((string)$id)) $selectedFolders[(int)$id]=true;
+if ($filter['folder']!=='' && ctype_digit($filter['folder'])) $selectedFolders[(int)$filter['folder']]=true;
+$renderFolderTree=function(int $parent) use (&$renderFolderTree,&$folderChildren,&$selectedFolders): void {
+    foreach ($folderChildren[$parent]??[] as $folder) {
+        $id=(int)$folder['id'];
+        echo '<li><label for="evaluation-folder-'.$id.'"><input class="form-check-input" id="evaluation-folder-'.$id.'" type="checkbox" name="folders[]" value="'.$id.'"'.(isset($selectedFolders[$id])?' checked':'').'><span>'.h((string)$folder['name']).'</span></label>';
+        if (!empty($folderChildren[$id])) { echo '<ul>'; $renderFolderTree($id); echo '</ul>'; }
+        echo '</li>';
+    }
+};
+?>
+<fieldset class="evaluation-folder-filter"><legend>Ordner</legend><div class="accept-folder-picker evaluation-folder-picker" role="group" aria-label="Ordner auswählen"><ul class="accept-folder-tree"><?php if ($folderChildren): $renderFolderTree(0); else: ?><li class="small text-body-secondary">Keine Ordner vorhanden.</li><?php endif ?></ul></div></fieldset>
 <label class="form-label">Ergebnisansicht<select class="form-select" name="resultView"><option value="all" <?= $filter['resultView']==='all'?'selected':'' ?>>Alle passenden Dokumente</option><option value="latest" <?= $filter['resultView']==='latest'?'selected':'' ?>>Zuletzt hinzugefügt</option></select></label>
 <label class="form-label">Die letzten … Dokumente<input class="form-control" type="number" name="latestCount" min="1" max="10000" value="<?= h($filter['latestCount']) ?>"></label>
 <label class="form-label">Tag enthalten<select class="form-select" name="tag"><option value="">Alle</option><?php foreach ($tags as $tag): ?><option value="<?= (int)$tag['id'] ?>" <?= $filter['tag']===(string)$tag['id']?'selected':'' ?>><?= h($tag['name']) ?></option><?php endforeach ?></select></label>
@@ -33,9 +52,10 @@
 <p class="evaluation-count" role="status"><?= (int)$result['selectedTotal'] ?> von <?= (int)$result['matchingTotal'] ?> passenden Buchungen berücksichtigt.</p>
 <?php if (!$result['months']): ?><p class="alert alert-info">Keine Buchungsdaten gefunden.</p><?php else: ?>
 <section class="evaluation-totals" aria-label="Gesamtsummen"><h2 class="h6">Gesamtsummen</h2><div class="table-responsive"><table class="table table-sm"><thead><tr><th>Währung</th><th class="text-end">Netto</th><th class="text-end">Steuer</th><th class="text-end">Brutto</th></tr></thead><tbody><?php foreach ($result['currencies'] as $currency=>$totals): ?><tr><th><?= h($currency) ?></th><td class="text-end"><?= h(number_format($totals['net'],2,',','.')) ?></td><td class="text-end"><?= h(number_format($totals['tax'],2,',','.')) ?></td><td class="text-end fw-semibold"><?= h(number_format($totals['gross'],2,',','.')) ?></td></tr><?php endforeach ?></tbody></table></div></section>
-<div class="evaluation-month-grid">
-<?php foreach ($result['months'] as $month=>$data): ?>
-<section class="evaluation-month"><h2 class="h6"><?= h(substr($month,5,2).'/'.substr($month,0,4)) ?></h2><div class="table-responsive"><table class="table table-sm"><thead><tr><th>Konto</th><?php foreach (array_keys($data['currencies']) as $currency): ?><th class="text-end"><?= h($currency) ?> Brutto</th><?php endforeach ?></tr></thead><tbody>
+<?php $months=$result['months']; ksort($months,SORT_STRING); ?>
+<div class="evaluation-month-list">
+<?php foreach ($months as $month=>$data): ?>
+<section class="evaluation-month"><header><h2 class="h6"><?= h(substr($month,5,2).'/'.substr($month,0,4)) ?></h2><span class="evaluation-month-count"><?= (int)$data['document_count'] ?> Dok.</span></header><div class="table-responsive"><table class="table table-sm"><thead><tr><th>Konto</th><?php foreach (array_keys($data['currencies']) as $currency): ?><th class="text-end"><?= h($currency) ?> Brutto</th><?php endforeach ?></tr></thead><tbody>
 <?php foreach (array_column($data['accounts'],null,'id') as $account): ?><tr><th><span><?= h($account['code']) ?></span><small class="d-block text-body-secondary"><?= h($account['name']) ?></small></th><?php foreach (array_keys($data['currencies']) as $currency): ?><td class="text-end"><?= h(number_format($data['gross'][$account['id'].'_'.$currency]??0,2,',','.')) ?></td><?php endforeach ?></tr><?php endforeach ?>
 </tbody></table></div></section>
 <?php endforeach ?>

@@ -9,6 +9,7 @@ This guide is for a new, independent o8 installation. Do not use an existing app
 - A web server that serves the `public/` directory, or the project directory with its `.htaccess` protections enabled. Use HTTPS for any network-accessible installation. Never expose `app/`, `bin/`, `database/`, `config.php` or `storage/` over HTTP.
 - A private writable `storage/system/` directory for the installation identity and sessions. Tenant document storage is configured separately by the operator outside the project and web root.
 - PHP IMAP for mailbox sources and PHP cURL for WebDAV and external AI. For PDF text/OCR, install `pdftotext`, `pdftoppm` and Tesseract with the languages you need (German uses `deu`). These integrations are optional.
+- o8 accepts originals up to 1 GiB. If browser uploads of that size are needed, set PHP's `upload_max_filesize` and `post_max_size` (and any reverse-proxy limit) accordingly; the command-line migration is not limited by PHP upload settings.
 
 The included Bootstrap assets are local. No npm installation or frontend build is required to run o8.
 

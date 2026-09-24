@@ -126,7 +126,7 @@ try {
                 confirmed(); $administration->updateTenant($actor,(int)field('id'),field('tenant_name'),field('contact_email'),field('active')==='1');
                 $_SESSION['flash']='Mandant gespeichert. Bei Statusänderung wurden seine Benutzersitzungen widerrufen.';
             } elseif ($action==='storage_configure' && $actor) {
-                confirmed(); (new Storage($db,$root))->configure($actor,(int)field('tenant_id'),field('root_path'),field('linux_owner'),field('linux_group'));
+                confirmed(); (new Storage($db,$root))->configure($actor,(int)field('tenant_id'),field('root_path'),field('linux_owner'),field('linux_group'),field('enforce_file_attributes')==='1');
                 $_SESSION['flash']='Storage-Zuweisung geprüft und gespeichert. Bestehende Dateien wurden nicht verändert.';
             } elseif ($action==='storage_relocate' && $actor) {
                 confirmed(); (new Storage($db,$root))->relocate($actor,(int)field('tenant_id'),field('root_path'));
@@ -257,6 +257,7 @@ try {
                 'invoiceNumbers'=>is_string($_GET['invoiceNumbers']??null)?$_GET['invoiceNumbers']:'','accountCode'=>is_string($_GET['accountCode']??null)?$_GET['accountCode']:'',
                 'documentType'=>is_string($_GET['documentType']??null)?$_GET['documentType']:'',
                 'folder'=>is_string($_GET['folder']??null)?$_GET['folder']:'',
+                'folders'=>is_array($_GET['folders']??null)?$_GET['folders']:[],
                 'resultView'=>is_string($_GET['resultView']??null)?$_GET['resultView']:'all','latestCount'=>is_string($_GET['latestCount']??null)?$_GET['latestCount']:'25',
                 'accounts'=>is_array($_GET['accounts']??null)?$_GET['accounts']:[],
                 'tag'=>is_string($_GET['tag']??null)?$_GET['tag']:'',
@@ -273,15 +274,6 @@ try {
             $tags=$db->prepare('SELECT id,name FROM tags WHERE tenant_id=? AND active=1 ORDER BY name'); $tags->execute([$actor->tenantId()]); $tags=$tags->fetchAll();
             $owners=$db->prepare('SELECT id,display_name FROM users WHERE tenant_id=? ORDER BY display_name'); $owners->execute([$actor->tenantId()]); $owners=$owners->fetchAll();
             $folders=(new Documents($db,$root))->folders($actor);
-            $folderRows=[]; foreach ($folders as $folder) $folderRows[(int)$folder['id']]=$folder;
-            $folderLabels=[];
-            foreach ($folders as $folder) {
-                $parts=[(string)$folder['name']]; $parent=(int)($folder['parent_id']??0); $seen=[(int)$folder['id']=>true];
-                while ($parent>0 && isset($folderRows[$parent]) && !isset($seen[$parent])) {
-                    $seen[$parent]=true; array_unshift($parts,(string)$folderRows[$parent]['name']); $parent=(int)($folderRows[$parent]['parent_id']??0);
-                }
-                $folderLabels[(int)$folder['id']]=implode(' › ',$parts);
-            }
         }
         if ($section==='account' && $actor->kind==='tenant') { $retention=new TrashRetention($db,$root); $trashRetentionDays=$retention->days($actor); $trashWorkerActive=$retention->workerActive(); $importSources=$sourceManager->sources($actor); $sourceWorkerActive=(new RemoteFetchJobs($db,$root,$identity))->workerActive(); if ($actor->row['role']==='admin') { $aiConfiguration=$aiManager->get($actor); $aiWorkerActive=(new AiJobs($db,$root,$identity))->workerActive(); $cached=$_SESSION['ai_models']??null; if (is_array($cached) && ($cached['tenant']??0)===$actor->tenantId() && ($cached['expires']??0)>=time() && is_array($cached['values']??null)) $aiModels=$cached['values']; } }
     }

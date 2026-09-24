@@ -122,8 +122,9 @@ h1 { margin: 5px 0 7px; font-size: clamp(1.5rem, calc(2.2vw * var(--o8-font-scal
 .document-list { flex: 1; min-height: 0; overflow-y: auto; }
 .doc-row { display: flex; align-items: start; gap: 0; border-bottom: 1px solid var(--o8-line); position: relative; }
 .doc-row:hover { background: color-mix(in srgb, var(--o8-tint) 60%, var(--o8-surface)); }
-.doc-row.is-active { background: var(--o8-tint); }
-.doc-row.is-active::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--o8-accent); }
+.doc-row.is-active { background: color-mix(in srgb, var(--o8-accent) 18%, var(--o8-surface)); box-shadow: inset 4px 0 var(--o8-accent); }
+.doc-row.is-active::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--o8-accent); }
+.doc-row.is-active .doc-title { color: var(--o8-accent); }
 .doc-check { padding: 21px 8px 12px 17px; cursor: pointer; }
 .doc-open { display: flex; gap: 10px; flex: 1; min-width: 0; text-align: left; background: none; border: 0; color: var(--o8-text); padding: 18px 13px 17px 3px; }
 .doc-icon { width: 31px; height: 37px; border-radius: 5px; background: var(--o8-background); color: var(--o8-accent); display: grid; place-items: center; flex-shrink: 0; border: 1px solid var(--o8-line); }

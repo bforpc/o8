@@ -23,11 +23,11 @@ try {
     if ($api==='file') {
         $file=$documents->open($actor,(int)($_GET['id']??0)); $length=$file['size']; $start=0; $end=$length-1;
         header('Content-Type: '.$file['mime']);
-        // Only verified PDF/PNG/JPEG reach this endpoint. CSP sandbox would block native PDF viewers.
+        // Only verified supported originals reach this endpoint. CSP sandbox blocks active content.
         header('Content-Security-Policy: default-src \'none\'; script-src \'none\'; base-uri \'none\'; form-action \'none\'; frame-ancestors \'self\'');
         header('X-Frame-Options: SAMEORIGIN');
         $disposition=($_GET['download']??'')==='1'?'attachment':'inline';
-        header('Content-Disposition: '.$disposition.'; filename="Dokument-'.(int)($_GET['id']??0).'.'.(['application/pdf'=>'pdf','image/jpeg'=>'jpg','image/png'=>'png'][$file['mime']]??'bin').'"; filename*=UTF-8\'\''.rawurlencode($file['name']));
+        header('Content-Disposition: '.$disposition.'; filename="Dokument-'.(int)($_GET['id']??0).'.'.(Documents::MIME_EXTENSIONS[$file['mime']]??'bin').'"; filename*=UTF-8\'\''.rawurlencode($file['name']));
         header('Accept-Ranges: bytes');
         if (isset($_SERVER['HTTP_RANGE'])) {
             if (!preg_match('/^bytes=(\d*)-(\d*)$/D',$_SERVER['HTTP_RANGE'],$m) || ($m[1]==='' && $m[2]==='')) {
@@ -91,7 +91,7 @@ try {
     elseif ($api==='bulk') $result=['count'=>$documents->bulk($actor,['documents'=>json_decode(field('documents'),true,512,JSON_THROW_ON_ERROR),'folderAction'=>field('folderAction'),'folderId'=>field('folderId'),'sourceFolderId'=>field('sourceFolderId'),'tagAction'=>field('tagAction'),'tags'=>json_decode(field('tags'),true,512,JSON_THROW_ON_ERROR),'ownerId'=>field('ownerId'),'status'=>field('status')])];
     elseif ($api==='trashPurgeInfo') $result=(new TrashRetention($db,$root))->manualInfo($actor);
     elseif ($api==='trashPurge') { if (field('confirm')!=='yes') throw new RuntimeException('Bitte die endgültige Löschung ausdrücklich bestätigen.'); $result=['removed'=>(new TrashRetention($db,$root))->manualPurge($actor,(int)field('id'),(int)field('revision'))?1:0]; }
-    elseif ($api==='invoice') $documents->saveInvoice($actor,(int)field('id'),(int)field('revision'),json_decode(field('invoice'),true,512,JSON_THROW_ON_ERROR));
+    elseif ($api==='invoice') { $invoice=json_decode(field('invoice'),true,512,JSON_THROW_ON_ERROR); if (!is_array($invoice)) throw new RuntimeException('Ungültige Buchungsdaten.'); ($invoice['mode']??'')==='partial'?$documents->savePartialInvoice($actor,(int)field('id'),(int)field('revision'),$invoice):$documents->saveInvoice($actor,(int)field('id'),(int)field('revision'),$invoice); }
     elseif ($api==='preferences') $result=$documents->preferences($actor,json_decode(field('preferences'),true,16,JSON_THROW_ON_ERROR));
     elseif ($api==='sourceFetch') $result=(new RemoteFetchJobs($db,$root,$identity))->enqueue($actor,(int)field('source'),json_decode(field('keys'),true,16,JSON_THROW_ON_ERROR));
     elseif ($api==='sourceRun') $result=(new RemoteFetchJobs($db,$root,$identity))->runManualStep($actor,(int)field('id'));

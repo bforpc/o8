@@ -211,6 +211,7 @@ with sync_playwright() as p:
     page.locator('[data-scope="all"]').click()
     expect(page.locator('#documentList')).to_contain_text('Invoice sample')
     doc_row=page.locator('[data-drag-document="'+str(docid)+'"]')
+    expect(doc_row).to_have_class(re.compile(r'\bis-active\b'))
     expect(doc_row.locator('time')).to_have_text('01.09.2026')
     expect(page.locator('.live-detail-facts')).to_contain_text('01.09.2026')
     assert page.locator('.live-detail-intro .live-detail-actions').count()==1
@@ -229,6 +230,18 @@ with sync_playwright() as p:
     expect(page.locator('#invoiceModal')).not_to_be_visible(timeout=10000)
     expect(page.locator('.live-invoice-summary')).to_contain_text('119')
     expect(page.locator('[data-drag-document="'+str(docid)+'"] .doc-gross')).to_have_text('119,00 EUR')
+    page.locator('[data-invoice]').click()
+    page.locator('#invoiceMode').select_option('partial')
+    expect(page.locator('#invoiceGross')).to_be_visible()
+    assert page.locator('#invoiceSender').get_attribute('required') is None
+    assert page.locator('#invoiceDate').get_attribute('required') is None
+    page.locator('#invoiceSender').fill('')
+    page.locator('#invoiceNumber').fill('')
+    page.locator('#invoiceDate').fill('')
+    page.locator('#invoiceGross').fill('119.00')
+    page.locator('#invoiceForm button[type="submit"]').click()
+    expect(page.locator('#invoiceModal')).not_to_be_visible(timeout=10000)
+    expect(page.locator('.live-invoice-summary')).to_contain_text('119')
     page.locator('.workspace-menu summary').click()
     page.locator('[data-admin-overlay="evaluation"]').click()
     frame=page.frame_locator('#adminOverlayFrame')
@@ -237,10 +250,12 @@ with sync_playwright() as p:
     expect(frame.locator('#evaluationDetails')).to_have_class(re.compile(r'\bshow\b'))
     frame.locator('[name="dateFrom"]').fill('2026-09-01')
     frame.locator('[name="dateTo"]').fill('2026-09-30')
-    expect(frame.locator('[name="folder"]')).to_be_visible()
+    expect(frame.locator('.evaluation-folder-picker')).to_be_visible()
     frame.get_by_role('button',name='Suchen',exact=True).click()
     expect(frame.get_by_role('heading',name='Gesamtsummen')).to_be_visible()
     expect(frame.locator('.evaluation-totals')).to_contain_text('119,00')
+    expect(frame.locator('.evaluation-month-list')).to_be_visible()
+    expect(frame.locator('.evaluation-month')).to_contain_text('1 Dok.')
     assert page.locator('#documentWorkspace').bounding_box()==before
     page.locator('#adminOverlay .btn-close').click()
     assert page.locator('[data-drag-document="'+str(docid)+'"] .doc-second-line').evaluate('''row => {
@@ -344,6 +359,7 @@ with sync_playwright() as p:
     page.get_by_role('option',name=tag_name_2,exact=True).click()
     page.locator('#documentForm').get_by_role('button',name='Speichern',exact=True).click()
     expect(page.locator('#liveNotice')).to_contain_text('Dokument gespeichert')
+    expect(page.locator('[data-drag-document="'+str(docid)+'"]')).to_have_class(re.compile(r'\bis-active\b'))
     assert page.evaluate('''() => {
         const before = document.querySelector('#documentWorkspace').getBoundingClientRect().top;
         document.querySelector('#liveNotice').hidden = true;

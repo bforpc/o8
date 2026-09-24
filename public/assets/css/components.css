@@ -1,5 +1,5 @@
 .document-review-modal { --review-space: 1rem; }
-.document-review-modal .modal-dialog { width: calc(100% - 2rem); max-width: 900px; height: calc(100dvh - 2rem); margin: 1rem auto; }
+.document-review-modal .modal-dialog { width: min(1480px, calc(100% - 2rem)); max-width: none; height: calc(100dvh - 2rem); margin: 1rem auto; }
 .document-review-modal .modal-content { height: 100%; }
 .document-review-modal .modal-header, .document-review-modal .modal-footer { padding: var(--review-space); gap: .75rem; }
 .document-review-modal .modal-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: var(--review-space); padding: var(--review-space); min-height: 0; overflow: hidden; }
@@ -121,18 +121,16 @@
 .invoice-totals .invoice-grand-total { background: var(--o8-tint); border-radius: 7px; margin-top: 5px; padding: 15px 12px; font-size: 1rem; }
 .invoice-footer { justify-content: space-between; gap: 10px; }
 .invoice-footer > div:first-child strong { font-size: 1.25rem; font-weight: 600; }
-.manual-invoice-totals { display: grid; grid-template-columns: minmax(160px,1fr) minmax(250px,2fr); gap: 22px; }
-.manual-tax-row { display: flex; gap: 10px; align-items: end; padding-bottom: 12px; }
-.manual-tax-row label { flex: 1; font-size: 0.625rem; color: var(--o8-muted); }
+.manual-invoice-totals { display: grid; grid-template-columns: minmax(160px,1fr) minmax(250px,2fr); gap: 22px; align-items: start; }
+.manual-tax-section { min-width: 0; }
+.manual-tax-row { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)) auto; gap: 10px; align-items: end; padding-bottom: 12px; }
+.manual-tax-row label { min-width: 0; font-size: 0.625rem; color: var(--o8-muted); }
 .manual-tax-row input { margin-top: 4px; }
 .live-manual-invoice-totals { row-gap: .5rem; }
-.live-manual-invoice-totals > .manual-tax-heading { grid-column: 2; margin: 0; }
+.live-manual-invoice-totals .manual-tax-heading { margin: 0 0 .5rem; }
 .live-manual-invoice-totals > .invoice-field { align-self: start; gap: 0; }
 .live-manual-invoice-totals #invoiceNet,
 .live-manual-invoice-totals .manual-tax-row select { margin-top: 4px; }
-@media (max-width: 575px) {
-    .live-manual-invoice-totals > .manual-tax-heading { grid-column: 1; }
-}
 .selected-tags { display: flex; flex-wrap: wrap; gap: 5px; margin: 7px 0 10px; }
 .selected-tag { background: var(--o8-tint); border: 1px solid var(--o8-line); border-radius: 20px; padding: 5px 9px; color: var(--o8-text); font-size: 0.6875rem; }
 .selected-tag:hover { border-color: var(--o8-accent); }

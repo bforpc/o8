@@ -6,10 +6,26 @@ use O8\Storage\Storage;
 
 final class Documents
 {
-    public const MAX_BYTES=26214400;
+    /** Large originals are supported for archival imports; HTTP server limits may be lower. */
+    public const MAX_BYTES=1073741824;
+    public const MIME_EXTENSIONS=[
+        'application/pdf'=>'pdf',
+        'image/jpeg'=>'jpg',
+        'image/png'=>'png',
+        'application/vnd.oasis.opendocument.text'=>'odt',
+        'text/plain'=>'txt',
+    ];
     private Storage $storage;
     private bool $composingIngest=false;
     public function __construct(private \PDO $db,string $root) { $this->storage=new Storage($db,$root); }
+    public static function isPlainTextFile(string $path): bool
+    {
+        $handle=@fopen($path,'rb'); if (!$handle) return false;
+        try {
+            while (!feof($handle)) { $chunk=fread($handle,1048576); if ($chunk===false || str_contains($chunk,"\0")) return false; }
+            return true;
+        } finally { fclose($handle); }
+    }
     private function transaction(Actor $actor,callable $action): mixed
     {
         // Only the internal ingest completion may compose existing document actions.
@@ -35,12 +51,14 @@ final class Documents
         foreach ($sidecars as $role=>$content) if (!in_array($role,['ai_source','ocr_text'],true) || !is_string($content) || strlen($content)>1048576) throw new \RuntimeException('Ungültige Nebendatei.');
         if (is_link($source) || !is_file($source) || !is_readable($source)) throw new \RuntimeException('Quelldatei nicht lesbar.');
         $size=filesize($source);
-        if (!$size || $size>self::MAX_BYTES) throw new \RuntimeException('Datei muss zwischen 1 Byte und 25 MiB groß sein.');
+        if (!$size || $size>self::MAX_BYTES) throw new \RuntimeException('Datei muss zwischen 1 Byte und 1 GiB groß sein.');
         $mime=(new \finfo(FILEINFO_MIME_TYPE))->file($source);
-        $ext=['application/pdf'=>'pdf','image/jpeg'=>'jpg','image/png'=>'png'][$mime]??null;
-        if (!$ext) throw new \RuntimeException('Für diesen Prüfabschnitt sind nur PDF, JPEG und PNG zugelassen.');
+        $ext=self::MIME_EXTENSIONS[$mime]??null;
+        if (!$ext) throw new \RuntimeException('Zugelassen sind PDF, JPEG, PNG, ODT und TXT.');
         if ($ext==='pdf' && file_get_contents($source,false,null,0,5)!=='%PDF-') throw new \RuntimeException('Ungültiger PDF-Dateianfang.');
-        if ($ext!=='pdf') { $image=@getimagesize($source); if (!$image || $image[0]*$image[1]>40000000) throw new \RuntimeException('Bild ungültig oder größer als 40 Megapixel.'); }
+        if (in_array($ext,['jpg','png'],true)) { $image=@getimagesize($source); if (!$image || $image[0]*$image[1]>40000000) throw new \RuntimeException('Bild ungültig oder größer als 40 Megapixel.'); }
+        if ($ext==='odt' && file_get_contents($source,false,null,0,4)!=="PK\x03\x04") throw new \RuntimeException('Ungültiger ODT-Dateianfang.');
+        if ($ext==='txt' && !self::isPlainTextFile($source)) throw new \RuntimeException('TXT-Datei enthält Binärdaten.');
         $name=mb_strcut(preg_replace('/[\x00-\x1f\x7f]/u','',basename(str_replace('\\','/',$name)))??'',0,250,'UTF-8');
         if ($name==='') $name='Dokument.'.$ext;
         $relative=bin2hex(random_bytes(24)).'.'.$ext; $path=null; $part=null; $commitStarted=false; $attachments=[];
@@ -804,7 +822,7 @@ final class Documents
             $s=$this->db->prepare("SELECT f.*,s.root_path,s.linux_owner,s.linux_group,s.identity_json,t.public_id FROM document_files f JOIN storage_locations s ON s.tenant_id=f.tenant_id AND s.storage_key=f.storage_key JOIN tenants t ON t.id=f.tenant_id WHERE f.tenant_id=? AND f.document_id=? AND f.role='original' AND s.active=1");
             $s->execute([$actor->tenantId(),$id]); $f=$s->fetch(); if (!$f) throw new \RuntimeException('Original nicht verfügbar.');
             [, $target]=$this->storage->paths($f);
-            if (!preg_match('/^[a-f0-9]{48}\.(pdf|jpg|png)$/D',$f['relative_path'])) throw new \RuntimeException('Dateipfad nicht freigegeben.');
+            if (!preg_match('/^[a-f0-9]{48}\.(pdf|jpg|png|odt|txt)$/D',$f['relative_path'])) throw new \RuntimeException('Dateipfad nicht freigegeben.');
             $path=$target.'/'.$f['relative_path']; clearstatcache(true,$path);
             $stat=lstat($path);
             if (!$stat || is_link($path) || !is_file($path) || $stat['size']!=(int)$f['size_bytes'] || $stat['dev']!==stat($target)['dev']) throw new \RuntimeException('Original fehlt oder wurde verändert.');

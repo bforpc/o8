@@ -3,12 +3,13 @@ declare(strict_types=1);
 namespace O8\Inbound;
 
 use O8\Auth\{Access,Actor};
+use O8\Documents\Documents;
 use O8\Storage\Storage;
 
 /** Bounded remote fetch queue. Network errors are reduced to stable error codes. */
 final class RemoteFetchJobs
 {
-    private const MAX_DOCUMENT_BYTES=26214400;
+    private const MAX_DOCUMENT_BYTES=Documents::MAX_BYTES;
     private const HEARTBEAT_KEY='worker.source_fetch.heartbeat';
     public function __construct(private \PDO $db,private string $root,private array $identity) {}
 
@@ -249,10 +250,12 @@ final class RemoteFetchJobs
     private function documentType(string $bytes,string $name): array
     {
         $temp=fopen('php://temp','w+b'); fwrite($temp,$bytes); $meta=stream_get_meta_data($temp); $mime=(new \finfo(FILEINFO_MIME_TYPE))->buffer($bytes); fclose($temp);
-        $extension=['application/pdf'=>'pdf','image/jpeg'=>'jpg','image/png'=>'png'][$mime]??null; if (!$extension) throw new \RuntimeException('unsupported_type');
+        $extension=Documents::MIME_EXTENSIONS[$mime]??null; if (!$extension) throw new \RuntimeException('unsupported_type');
         $given=mb_strtolower(pathinfo($name,PATHINFO_EXTENSION)); if (($extension==='jpg' && !in_array($given,['jpg','jpeg'],true)) || ($extension!=='jpg' && $given!==$extension)) throw new \RuntimeException('extension_mismatch');
         if ($extension==='pdf' && !str_starts_with($bytes,'%PDF-')) throw new \RuntimeException('invalid_pdf');
-        if ($extension!=='pdf') { $image=@getimagesizefromstring($bytes); if (!$image || $image[0]*$image[1]>40000000) throw new \RuntimeException('invalid_image'); }
+        if (in_array($extension,['jpg','png'],true)) { $image=@getimagesizefromstring($bytes); if (!$image || $image[0]*$image[1]>40000000) throw new \RuntimeException('invalid_image'); }
+        if ($extension==='odt' && !str_starts_with($bytes,"PK\x03\x04")) throw new \RuntimeException('invalid_odt');
+        if ($extension==='txt' && str_contains($bytes,"\0")) throw new \RuntimeException('invalid_text');
         return [$mime,$extension];
     }
 

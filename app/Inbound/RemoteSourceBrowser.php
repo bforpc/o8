@@ -9,7 +9,7 @@ final class RemoteSourceBrowser
 {
     public const MAX_MESSAGES=200;
     public const MAX_DAV_RESPONSE=4194304;
-    private const EXTENSIONS=['pdf','jpg','jpeg','png','json','txt'];
+    private const EXTENSIONS=['pdf','jpg','jpeg','png','odt','json','txt'];
     public function __construct(private SourceManager $sources) {}
 
     public function browse(Actor $actor,int $sourceId): array
@@ -98,7 +98,7 @@ final class RemoteSourceBrowser
             foreach ($inventory['rows']??[] as $message) foreach ($message['attachments']??[] as $attachment) $all[]=$attachment+['uid'=>(int)$message['uid'],'uidValidity'=>(int)$inventory['uidValidity']];
             foreach ($all as $candidate) if (isset($wanted[$candidate['remoteKey']]) && self::documentName((string)$candidate['filename'])) {
                 $stem=mb_strtolower(pathinfo((string)$candidate['filename'],PATHINFO_FILENAME)); $sidecars=[];
-                foreach ($all as $sidecar) if ((int)$sidecar['uid']===(int)$candidate['uid'] && mb_strtolower(pathinfo((string)$sidecar['filename'],PATHINFO_FILENAME))===$stem && in_array(mb_strtolower(pathinfo((string)$sidecar['filename'],PATHINFO_EXTENSION)),['json','txt'],true)) $sidecars[]=$sidecar;
+                foreach ($all as $sidecar) if ($sidecar['remoteKey']!==$candidate['remoteKey'] && (int)$sidecar['uid']===(int)$candidate['uid'] && mb_strtolower(pathinfo((string)$sidecar['filename'],PATHINFO_FILENAME))===$stem && in_array(mb_strtolower(pathinfo((string)$sidecar['filename'],PATHINFO_EXTENSION)),['json','txt'],true)) $sidecars[]=$sidecar;
                 $messageDocuments=array_values(array_filter($all,fn(array $file):bool=>(int)$file['uid']===(int)$candidate['uid'] && self::documentName((string)$file['filename'])));
                 $deleteEligible=count($messageDocuments)>0 && count(array_filter($messageDocuments,fn(array $file):bool=>isset($wanted[$file['remoteKey']])))===count($messageDocuments);
                 $documents[]=['remoteKey'=>$candidate['remoteKey'],'filename'=>$candidate['filename'],'size'=>(int)$candidate['size'],'mime'=>$candidate['mime'],'locator'=>['uidValidity'=>$candidate['uidValidity'],'uid'=>$candidate['uid'],'section'=>$candidate['section'],'encoding'=>$candidate['encoding'],'deleteMessageEligible'=>$deleteEligible],'sidecars'=>array_map(fn(array $s):array=>['filename'=>$s['filename'],'size'=>(int)$s['size'],'mime'=>$s['mime'],'locator'=>['uidValidity'=>$s['uidValidity'],'uid'=>$s['uid'],'section'=>$s['section'],'encoding'=>$s['encoding']]],$sidecars)];
@@ -107,14 +107,14 @@ final class RemoteSourceBrowser
             $all=$inventory['rows']??[];
             foreach ($all as $candidate) if (isset($wanted[$candidate['remoteKey']]) && self::documentName((string)$candidate['filename'])) {
                 $stem=mb_strtolower(pathinfo((string)$candidate['filename'],PATHINFO_FILENAME)); $sidecars=[];
-                foreach ($all as $sidecar) if (mb_strtolower(pathinfo((string)$sidecar['filename'],PATHINFO_FILENAME))===$stem && in_array(mb_strtolower(pathinfo((string)$sidecar['filename'],PATHINFO_EXTENSION)),['json','txt'],true)) $sidecars[]=['filename'=>$sidecar['filename'],'size'=>(int)$sidecar['size'],'mime'=>$sidecar['mime'],'locator'=>['href'=>$sidecar['href'],'etag'=>$sidecar['etag']]];
+                foreach ($all as $sidecar) if ($sidecar['remoteKey']!==$candidate['remoteKey'] && mb_strtolower(pathinfo((string)$sidecar['filename'],PATHINFO_FILENAME))===$stem && in_array(mb_strtolower(pathinfo((string)$sidecar['filename'],PATHINFO_EXTENSION)),['json','txt'],true)) $sidecars[]=['filename'=>$sidecar['filename'],'size'=>(int)$sidecar['size'],'mime'=>$sidecar['mime'],'locator'=>['href'=>$sidecar['href'],'etag'=>$sidecar['etag']]];
                 $documents[]=['remoteKey'=>$candidate['remoteKey'],'filename'=>$candidate['filename'],'size'=>(int)$candidate['size'],'mime'=>$candidate['mime'],'locator'=>['href'=>$candidate['href'],'etag'=>$candidate['etag']],'sidecars'=>$sidecars];
             }
         }
         return $documents;
     }
 
-    public static function documentName(string $name): bool { return in_array(mb_strtolower(pathinfo($name,PATHINFO_EXTENSION)),['pdf','jpg','jpeg','png'],true); }
+    public static function documentName(string $name): bool { return in_array(mb_strtolower(pathinfo($name,PATHINFO_EXTENSION)),['pdf','jpg','jpeg','png','odt','txt'],true); }
 
     private function parts(object $structure,string $prefix=''): array { $rows=[]; if (!empty($structure->parts)) foreach ($structure->parts as $index=>$part) { $section=$prefix===''?(string)($index+1):$prefix.'.'.($index+1); $rows=array_merge($rows,!empty($part->parts)?$this->parts($part,$section):[['part'=>$part,'section'=>$section]]); } else $rows[]=['part'=>$structure,'section'=>'1']; return $rows; }
     private function filename(object $part): string { foreach (['dparameters','parameters'] as $property) foreach ($part->{$property}??[] as $parameter) if (in_array(mb_strtolower((string)($parameter->attribute??'')),['filename','name'],true)) return mb_substr($this->header((string)$parameter->value),0,255); return ''; }

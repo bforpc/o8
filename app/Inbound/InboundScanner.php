@@ -3,6 +3,7 @@ declare(strict_types=1);
 namespace O8\Inbound;
 
 use O8\Auth\{Access,Actor};
+use O8\Documents\Documents;
 
 /** Inventory only: no source file is moved and no document is created. */
 final class InboundScanner
@@ -34,20 +35,21 @@ final class InboundScanner
                 if (count($items)>=self::MAX_FILES) throw new \RuntimeException('Inbound enthält mehr als 1000 Dokumentdateien. Quelle aufteilen oder stapelweise leeren.');
                 if ($entry->isLink() || !$entry->isFile()) continue;
                 $extension=mb_strtolower($entry->getExtension());
-                if (!in_array($extension,['pdf','jpg','jpeg','png'],true)) continue;
+                if (!in_array($extension,['pdf','jpg','jpeg','png','odt','txt'],true) || $entry->getSize()<1 || $entry->getSize()>Documents::MAX_BYTES) continue;
                 $path=$entry->getPathname(); $mime=(new \finfo(FILEINFO_MIME_TYPE))->file($path);
-                $expected=['pdf'=>'application/pdf','jpg'=>'image/jpeg','jpeg'=>'image/jpeg','png'=>'image/png'][$extension];
+                $expected=['pdf'=>'application/pdf','jpg'=>'image/jpeg','jpeg'=>'image/jpeg','png'=>'image/png','odt'=>'application/vnd.oasis.opendocument.text','txt'=>'text/plain'][$extension];
                 if ($mime!==$expected) continue;
                 $sha=hash_file('sha256',$path); if (!$sha) throw new \RuntimeException('Prüfsumme einer Inbound-Datei konnte nicht gelesen werden.');
                 $relative=$entry->getFilename();
                 $remote=hash('sha256',$relative); // Stable local identity; content changes update the same source item.
                 $stem=pathinfo($relative,PATHINFO_FILENAME);
                 $jsonPath=$base.DIRECTORY_SEPARATOR.$stem.'.json';
-                $txtPath=$base.DIRECTORY_SEPARATOR.$stem.'.txt';
+                // A selected TXT original is not also its own OCR sidecar.
+                $txtPath=$extension==='txt'?null:$base.DIRECTORY_SEPARATOR.$stem.'.txt';
                 $ai=$sidecars->inspect(is_file($jsonPath)?$jsonPath:null,$catalogue);
                 $duplicate=$this->duplicate($actor->tenantId(),$sourceId,$remote,$sha);
                 $status=$duplicate?'duplicate':($ai['present']&&!$ai['valid']?'invalid':'pending');
-                $hasText=is_file($txtPath)&&!is_link($txtPath)&&is_readable($txtPath);
+                $hasText=$txtPath!==null && is_file($txtPath)&&!is_link($txtPath)&&is_readable($txtPath);
                 $this->upsert($actor,$sourceId,(int)$source['owner_id'],$remote,$sha,$status,['name'=>$relative,'mime'=>$mime,'size'=>$entry->getSize(),'hasText'=>$hasText,'hasJson'=>$ai['present'],'jsonValid'=>$ai['valid'],'aiStatus'=>$ai['present']?($ai['valid']?'ready':'failed'):'not_requested','errorCode'=>$ai['present']&&!$ai['valid']?'invalid_json':null]);
                 $items[]=['name'=>$relative,'sha256'=>$sha,'status'=>$status,'hasText'=>$hasText,'hasJson'=>$ai['present'],'jsonValid'=>$ai['valid'],'matchedTags'=>$ai['matchedTags'],'ignoredTags'=>$ai['ignoredTags'],'error'=>$ai['error']];
             }

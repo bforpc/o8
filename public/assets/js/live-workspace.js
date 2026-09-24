@@ -186,10 +186,12 @@ async function select(id, force = false) {
         for (const row of $('documentList').querySelectorAll('article')) row.classList.toggle('is-active', Number(row.dataset.dragDocument) === Number(id));
         const preview = $('documentPreview'); preview.replaceChildren();
         const fileUrl = url('file', {id});
-        const element = document.createElement(doc.mime_type === 'application/pdf' ? 'iframe' : 'img');
-        if (element.tagName === 'IFRAME') { element.title = 'PDF-Originalvorschau'; }
-        else element.alt = doc.title;
-        element.src = fileUrl; preview.append(element);
+        if (['application/pdf','image/jpeg','image/png'].includes(doc.mime_type)) {
+            const element = document.createElement(doc.mime_type === 'application/pdf' ? 'iframe' : 'img');
+            if (element.tagName === 'IFRAME') { element.title = 'PDF-Originalvorschau'; }
+            else element.alt = doc.title;
+            element.src = fileUrl; preview.append(element);
+        } else preview.textContent = 'Für diesen Dateityp ist keine integrierte Vorschau verfügbar.';
         const hint = document.createElement('p'); hint.className = 'small'; hint.textContent = 'Falls die Vorschau nicht unterstützt wird, bitte Download verwenden.'; preview.append(hint);
         $('downloadFile').href = url('file', {id,download:1}); $('downloadFile').hidden = false;
         details(); folders();
@@ -200,8 +202,9 @@ async function selectInbound(id,force=false) {
     try {
         const item=await api('inboundGet',{id}); if (sequence!==state.documentSequence) return; item._inbound=true; state.document=item; state.dirty=false; $('documentId').textContent='E'+item.id;
         for (const row of $('documentList').querySelectorAll('article')) row.classList.toggle('is-active',Number(row.dataset.inboundRow)===Number(id));
-        const preview=$('documentPreview'); preview.replaceChildren(); const fileUrl=url('inboundFile',{id}); const element=document.createElement(item.mime_type==='application/pdf'?'iframe':'img');
-        if (element.tagName==='IFRAME') element.title='Eingangsdatei-Vorschau'; else element.alt=item.original_name; element.src=fileUrl; preview.append(element);
+        const preview=$('documentPreview'); preview.replaceChildren(); const fileUrl=url('inboundFile',{id});
+        if (['application/pdf','image/jpeg','image/png'].includes(item.mime_type)) { const element=document.createElement(item.mime_type==='application/pdf'?'iframe':'img'); if (element.tagName==='IFRAME') element.title='Eingangsdatei-Vorschau'; else element.alt=item.original_name; element.src=fileUrl; preview.append(element); }
+        else preview.textContent='Für diesen Dateityp ist keine integrierte Vorschau verfügbar.';
         $('downloadFile').href=url('inboundFile',{id,download:1}); $('downloadFile').hidden=false;
         let json=item.json_text; if (json) try { json=JSON.stringify(JSON.parse(json),null,2); } catch { /* Ungültiges JSON bleibt als Rohtext sichtbar. */ }
         const clipped=(value,limit=100000)=>value&&value.length>limit?value.slice(0,limit)+'\n… Vorschau gekürzt …':value;
@@ -249,7 +252,7 @@ function details() {
     const editor = d.deleted_at ? '' :
         '<section class="live-detail-disclosure live-detail-editor" id="documentEditor" hidden><form id="documentForm"><div class="live-detail-edit-grid">' + field('title','Titel',d.title) + field('sender','Absender',d.sender) + field('reference','Referenz',d.reference) + field('date','Dokumentdatum',d.document_date,'date') + '</div>' +
         '<label>Notiz<textarea class="form-control" name="memo" maxlength="10000" rows="3">' + esc(d.memo) + '</textarea></label><div class="live-detail-flags"><label><input type="checkbox" name="expired" value="1" ' + (Number(d.expired) ? 'checked' : '') + '> Abgelaufen</label><label><input type="checkbox" name="notSearchable" value="1" ' + (!Number(d.searchable) ? 'checked' : '') + '> Nicht suchbar</label></div><p>Tags</p><div id="liveTagPicker"></div><div><button class="btn btn-primary btn-sm mt-2">Speichern' + (Number(d.in_inbox) ? ' & übernehmen' : '') + '</button></div></form><div class="live-detail-link-editor"><label class="d-block">In Ordner verlinken<select id="linkFolder" class="form-select">' + options(state.meta.folders,'Ordner wählen') + '</select></label><button class="btn btn-surface btn-sm mt-2" id="linkButton">Verlinken …</button></div></section>';
-    const foldersView = '<section class="live-detail-folders o8-info-group"><h3><svg class="icon small-icon" aria-hidden="true"><use href="#i-folder"/></svg> Ordnerverknüpfungen <span class="count">' + d.folders.length + '</span></h3><div class="live-detail-folder-list">' + d.folders.map(id => { const folder = state.meta.folders.find(x => Number(x.id) === id); return folder ? '<div class="folder-chip"><span>' + esc(folder.name) + '</span>' + (!d.deleted_at ? '<button type="button" data-unlink="' + id + '" aria-label="Verknüpfung entfernen">×</button>' : '') + '</div>' : ''; }).join('') + '</div></section>';
+    const foldersView = '<section class="live-detail-folders o8-info-group"><h3><svg class="icon small-icon" aria-hidden="true"><use href="#i-folder"/></svg> Ordnerverknüpfungen <span class="count">' + d.folders.length + '</span></h3><div class="live-detail-folder-list">' + d.folders.map(id => { const folder = state.meta.folders.find(x => Number(x.id) === id); return folder ? '<div class="folder-chip"><span>' + esc(folderPath(folder,'/')) + '</span>' + (!d.deleted_at ? '<button type="button" data-unlink="' + id + '" aria-label="Verknüpfung entfernen">×</button>' : '') + '</div>' : ''; }).join('') + '</div></section>';
     $('documentDetails').innerHTML = '<section class="live-detail-head o8-info-group o8-info-group--head"><div class="live-detail-intro"><div class="live-detail-top"><div class="live-detail-status"><span class="tag">' + esc(type) + '</span>' + (Number(d.expired) ? '<span class="tag">Abgelaufen</span>' : '') + (!Number(d.searchable) ? '<span class="tag">Nicht suchbar</span>' : '') + '</div><div class="live-detail-actions">' + actions + '</div></div><h2>' + esc(d.title) + '</h2><p>' + esc(d.sender || 'Ohne Absender') + '</p><span class="detail-label">' + esc(d.original_name) + ' · ' + Math.ceil(Number(d.size_bytes)/1024) + ' KiB</span></div>' +
         '<div class="live-detail-facts">' + fact('Dokumentdatum',dateLabel(d.document_date)) + fact('Quelle',source) + fact('Referenz',d.reference) + fact('Besitzer',owner) + '</div></section>' +
         editor + tagView + foldersView + '<section class="live-detail-booking o8-info-group o8-info-group--strong">' + invoice + savedBookingSummary(d,state.meta.accounting.accounts) + '</section>';
@@ -330,7 +333,7 @@ function showTagsTooltip(target) {
     if (!target) return;
     const isFolder=target.classList.contains('doc-folder-count');
     const names=isFolder
-        ? JSON.parse(target.dataset.folderIds || '[]').map(id => state.meta.folders.find(folder => Number(folder.id)===Number(id))).filter(Boolean).map(folderPath)
+        ? JSON.parse(target.dataset.folderIds || '[]').map(id => state.meta.folders.find(folder => Number(folder.id)===Number(id))).filter(Boolean).map(folder => folderPath(folder))
         : JSON.parse(target.dataset.tagNames || '[]');
     if (!names.length) { hideTagsTooltip(); return; }
     tagsTooltip.replaceChildren();
@@ -345,14 +348,12 @@ function showTagsTooltip(target) {
 function hideTagsTooltip() { tagsTooltip.hidden=true; }
 $('documentList').addEventListener('mouseover',event => { const target=event.target.closest('.doc-tag-count, .doc-folder-count'); if (target && !target.contains(event.relatedTarget)) showTagsTooltip(target); });
 $('documentList').addEventListener('mouseout',event => { const target=event.target.closest('.doc-tag-count, .doc-folder-count'); if (target && !target.contains(event.relatedTarget)) hideTagsTooltip(); });
-$('documentList').addEventListener('focusin',event => { if (event.target.matches('.doc-open')) showTagsTooltip(event.target.querySelector('.doc-tag-count')); });
-$('documentList').addEventListener('focusout',hideTagsTooltip);
 $('documentList').addEventListener('scroll',hideTagsTooltip);
 $('selectAll').addEventListener('change',event => { state.selected = event.target.checked ? new Set(state.rows.filter(row=>!row._inbound).map(row => Number(row.id))) : new Set(); state.inboundSelected=event.target.checked?new Set(state.rows.filter(row=>row._inbound).map(row=>Number(row.id))):new Set(); syncSelection(); });
-function folderPath(folder) {
+function folderPath(folder, separator = ' / ') {
     const parts=[folder.name], seen=new Set([Number(folder.id)]); let parent=folder.parent_id;
     while (parent!==null && !seen.has(Number(parent))) { const row=state.meta.folders.find(item => Number(item.id)===Number(parent)); if (!row) break; parts.unshift(row.name); seen.add(Number(row.id)); parent=row.parent_id; }
-    return parts.join(' / ');
+    return parts.join(separator);
 }
 function bulkFields() {
     const needsFolder=['add','remove'].includes($('bulkFolderAction').value);
@@ -698,7 +699,7 @@ $('uploadModal').addEventListener('hide.bs.modal',event => { if (writing) event.
 $('uploadForm').addEventListener('submit',async event => {
     event.preventDefault(); if (writing || !(await discard())) return;
     const files = [...$('uploadFiles').files]; if (!files.length) return;
-    if (files.some(x => x.size > 26214400 || !x.size)) { $('uploadStatus').textContent = 'Jede Datei muss 1 Byte bis 25 MiB groß sein.'; return; }
+    if (files.some(x => x.size > 1073741824 || !x.size)) { $('uploadStatus').textContent = 'Jede Datei muss 1 Byte bis 1 GiB groß sein.'; return; }
     writing = true; $('uploadSubmit').disabled = true; $('uploadFiles').disabled = true; state.dirty = false;
     let completed = 0;
     try {

@@ -3,6 +3,7 @@ declare(strict_types=1);
 namespace O8\Inbound;
 
 use O8\Auth\{Access,Actor};
+use O8\Documents\Documents;
 use O8\Storage\Storage;
 
 /** Tenant- and owner-scoped read model for entrance items; it never creates documents. */
@@ -51,7 +52,7 @@ final class InboundWorkbench
         $item=$this->raw($actor,$id); $stmt=$this->db->prepare('SELECT * FROM inbound_files WHERE tenant_id=? AND inbound_item_id=? AND role=?'); $stmt->execute([$actor->tenantId(),$id,$role]); $file=$stmt->fetch();
         if ($file) {
             if (!$this->root) throw new \RuntimeException('Dateizugriff nicht verfügbar.'); $relative=(string)$file['relative_path'];
-            if (!preg_match('#^inbound/[a-f0-9]{48}\.(?:pdf|jpg|png|json|txt)$#D',$relative)) throw new \RuntimeException('Unsicherer Eingangspfad.');
+            if (!preg_match('#^inbound/[a-f0-9]{48}\.(?:pdf|jpg|png|odt|json|txt)$#D',$relative)) throw new \RuntimeException('Unsicherer Eingangspfad.');
             $storage=new Storage($this->db,$this->root); $location=$storage->location($actor); if (!$location) throw new \RuntimeException('Geprüfte Ablage fehlt.'); [, $target]=$storage->paths($location); $path=$target.'/'.$relative;
             if (is_link($path) || !is_file($path) || !is_readable($path) || !hash_equals((string)$file['sha256'],(string)hash_file('sha256',$path))) throw new \RuntimeException('Eingangsdatei fehlt oder wurde verändert.');
             $handle=@fopen($path,'rb'); if (!$handle) throw new \RuntimeException('Eingangsdatei nicht lesbar.'); return ['handle'=>$handle,'size'=>(int)$file['size_bytes'],'mime'=>$file['mime_type'],'name'=>$file['original_name']];
@@ -62,7 +63,7 @@ final class InboundWorkbench
         if ($role!=='original') $name=pathinfo($name,PATHINFO_FILENAME).'.'.$role; $path=$base.'/'.$name;
         if (is_link($path) || !is_file($path) || !is_readable($path) || realpath(dirname($path))!==$base) throw new \RuntimeException('Eingangsdatei nicht verfügbar.');
         if ($role==='original' && (!hash_file('sha256',$path) || !hash_equals((string)$item['sha256'],(string)hash_file('sha256',$path)))) throw new \RuntimeException('Lokale Eingangsdatei wurde seit der Inventur verändert. Bitte neu scannen.');
-        $size=filesize($path); if ($size===false || $size<1 || $size>($role==='original'?26214400:AiSidecar::MAX_BYTES)) throw new \RuntimeException('Eingangsdatei hat eine ungültige Größe.');
+        $size=filesize($path); if ($size===false || $size<1 || $size>($role==='original'?Documents::MAX_BYTES:AiSidecar::MAX_BYTES)) throw new \RuntimeException('Eingangsdatei hat eine ungültige Größe.');
         $mime=$role==='original'?$item['mime_type']:($role==='json'?'application/json':'text/plain'); $handle=@fopen($path,'rb'); if (!$handle) throw new \RuntimeException('Eingangsdatei nicht lesbar.'); return ['handle'=>$handle,'size'=>$size,'mime'=>$mime,'name'=>$name];
     }
 
@@ -98,7 +99,7 @@ final class InboundWorkbench
             return mb_scrub($text,'UTF-8');
         } finally { fclose($file['handle']); }
     }
-    private function managedPaths(Actor $actor,array $ids): array { $marks=implode(',',array_fill(0,count($ids),'?')); $stmt=$this->db->prepare("SELECT relative_path FROM inbound_files WHERE tenant_id=? AND inbound_item_id IN ($marks)"); $stmt->execute([$actor->tenantId(),...$ids]); $rows=$stmt->fetchAll(); if (!$rows) return []; if (!$this->root) throw new \RuntimeException('Dateizugriff nicht verfügbar.'); $storage=new Storage($this->db,$this->root); $location=$storage->location($actor); if (!$location) throw new \RuntimeException('Geprüfte Ablage fehlt. Nichts wurde gelöscht.'); [, $target]=$storage->paths($location); $paths=[]; foreach ($rows as $row) { $relative=$row['relative_path']; if (!preg_match('#^inbound/[a-f0-9]{48}\.(?:pdf|jpg|png|json|txt)$#D',$relative)) throw new \RuntimeException('Unsicherer Eingangspfad.'); $path=$target.'/'.$relative; if (is_link($path) || !is_file($path)) throw new \RuntimeException('Eine verwaltete Eingangsdatei fehlt. Nichts wurde gelöscht.'); $paths[]=$path; } return $paths; }
+    private function managedPaths(Actor $actor,array $ids): array { $marks=implode(',',array_fill(0,count($ids),'?')); $stmt=$this->db->prepare("SELECT relative_path FROM inbound_files WHERE tenant_id=? AND inbound_item_id IN ($marks)"); $stmt->execute([$actor->tenantId(),...$ids]); $rows=$stmt->fetchAll(); if (!$rows) return []; if (!$this->root) throw new \RuntimeException('Dateizugriff nicht verfügbar.'); $storage=new Storage($this->db,$this->root); $location=$storage->location($actor); if (!$location) throw new \RuntimeException('Geprüfte Ablage fehlt. Nichts wurde gelöscht.'); [, $target]=$storage->paths($location); $paths=[]; foreach ($rows as $row) { $relative=$row['relative_path']; if (!preg_match('#^inbound/[a-f0-9]{48}\.(?:pdf|jpg|png|odt|json|txt)$#D',$relative)) throw new \RuntimeException('Unsicherer Eingangspfad.'); $path=$target.'/'.$relative; if (is_link($path) || !is_file($path)) throw new \RuntimeException('Eine verwaltete Eingangsdatei fehlt. Nichts wurde gelöscht.'); $paths[]=$path; } return $paths; }
 
     public function recordInventory(Actor $actor,int $sourceItem,int $owner,array $item): void
     {
