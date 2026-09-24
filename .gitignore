@@ -19,6 +19,8 @@
 /node_modules/
 /vendor/
 /tests/artifacts/
+# Private source screenshots; only the redacted PNG copies are publishable.
+/docs/o8-screen[1-4].jpg
 **/__pycache__/
 *.py[cod]
 /.pytest_cache/

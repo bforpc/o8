@@ -2,6 +2,16 @@
 
 [English](#english) · [Deutsch](#deutsch) · [Installation](INSTALL.md) · [License](LICENSE-o8.md)
 
+## Screenshots / Bildschirmfotos
+
+![Document workspace / Dokumentenansicht](docs/o8-screen1-public.png)
+
+![Advanced search / Detailsuche](docs/o8-screen2-public.png)
+
+![Settings / Einstellungen](docs/o8-screen3-public.png)
+
+![Account and sources / Konto und Quellen](docs/o8-screen4-public.png)
+
 ## English
 
 o8 is a self-hosted document management system for organizing documents without duplicating files. Each document has one original and can be linked to multiple virtual folders. Its responsive workspace combines folders, document list, preview and details in four resizable desktop columns or switchable mobile views.
