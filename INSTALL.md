@@ -12,6 +12,21 @@ This guide is for a new, independent o8 installation. Do not use an existing app
 
 The included Bootstrap assets are local. No npm installation or frontend build is required to run o8.
 
+## Debian 13 example package list
+
+The following installs a complete single-server example with Apache, a local MariaDB server, mailbox/WebDAV/AI source support and German OCR. Debian 13's generic `php-*` packages follow its supported default PHP version (currently PHP 8.4), so the command does not unnecessarily pin a PHP minor version.
+
+```sh
+sudo apt update
+sudo apt install \
+  apache2 libapache2-mod-php mariadb-server \
+  php-cli php-mysql php-mbstring php-xml php-zip php-curl php-imap php-opcache \
+  ca-certificates cron \
+  poppler-utils tesseract-ocr tesseract-ocr-deu
+```
+
+`php-mysql`, `php-mbstring`, `php-xml` and `php-zip` cover o8's database, text, WebDAV XML and supported ODT document handling. `php-curl` is needed for WebDAV and external AI, while `php-imap` enables mailbox sources. `poppler-utils`, Tesseract and `tesseract-ocr-deu` are needed only for PDF text extraction and German OCR; omit the unused optional source/OCR packages on deliberately minimal installations. Use either `libapache2-mod-php` as above **or** PHP-FPM with an equivalent Apache configuration, never both PHP SAPIs for the same virtual host.
+
 ## New installation
 
 1. Create an empty database and its dedicated account. Choose a unique strong database password; do not reuse the example values shown by the installer or `config.php.dist`.
