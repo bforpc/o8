@@ -14,18 +14,28 @@ The included Bootstrap assets are local. No npm installation or frontend build i
 
 ## Debian 13 example package list
 
-The following installs a complete single-server example with Apache, a local MariaDB server, mailbox/WebDAV/AI source support and German OCR. Debian 13's generic `php-*` packages follow its supported default PHP version (currently PHP 8.4), so the command does not unnecessarily pin a PHP minor version.
+The following installs a complete single-server example with Apache, a local MariaDB server, WebDAV/AI source support and German OCR. Debian 13's generic `php-*` packages follow its supported default PHP version (currently PHP 8.4), so the command does not unnecessarily pin a PHP minor version.
 
 ```sh
 sudo apt update
 sudo apt install \
   apache2 libapache2-mod-php mariadb-server \
-  php-cli php-mysql php-mbstring php-xml php-zip php-curl php-imap php-opcache \
+  php-cli php-mysql php-mbstring php-xml php-zip php-curl php-opcache \
   ca-certificates cron \
   poppler-utils tesseract-ocr tesseract-ocr-deu
 ```
 
-`php-mysql`, `php-mbstring`, `php-xml` and `php-zip` cover o8's database, text, WebDAV XML and supported ODT document handling. `php-curl` is needed for WebDAV and external AI, while `php-imap` enables mailbox sources. `poppler-utils`, Tesseract and `tesseract-ocr-deu` are needed only for PDF text extraction and German OCR; omit the unused optional source/OCR packages on deliberately minimal installations. Use either `libapache2-mod-php` as above **or** PHP-FPM with an equivalent Apache configuration, never both PHP SAPIs for the same virtual host.
+`php-mysql`, `php-mbstring`, `php-xml` and `php-zip` cover o8's database, text, WebDAV XML and supported ODT document handling. `php-curl` is needed for WebDAV and external AI. `poppler-utils`, Tesseract and `tesseract-ocr-deu` are needed only for PDF text extraction and German OCR; omit the unused optional source/OCR packages on deliberately minimal installations. Use either `libapache2-mod-php` as above **or** PHP-FPM with an equivalent Apache configuration, never both PHP SAPIs for the same virtual host.
+
+### Mailbox sources on Debian 13
+
+The stable Debian 13 repositories do not provide the old generic `php-imap` package. o8 itself and WebDAV sources work without it; only mailbox sources require the PHP IMAP extension. Debian currently lists `php8.4-imap` in `experimental`, so it is intentionally **not** included in the command above. Install and maintain a PHP 8.4-compatible IMAP extension through your approved package source or build process, then verify it for both web and CLI SAPIs:
+
+```sh
+php -m | grep -Fx imap
+```
+
+Do not enable a source until this command returns `imap`. The maintained PECL IMAP extension supports PHP 8.3 and newer, including PHP 8.4 build fixes; evaluate and package it according to your server's update policy.
 
 ## New installation
 
