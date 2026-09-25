@@ -35,5 +35,9 @@ test('DMS search actions and advanced-search captions use shared translations',(
 test('login language picker is placed between credentials and the login action',()=>{
     const view=fs.readFileSync(new URL('../app/views/foundation.php',import.meta.url),'utf8');
     assert.match(view,/<input class="form-control" type="password" name="password"[\s\S]*?<\/form>[\s\S]*?\$languagePickerInline=true; require __DIR__\.'\/language-picker.php'[\s\S]*?form="foundationLoginForm"/);
-    assert.match(fs.readFileSync(new URL('../app/views/language-picker.php',import.meta.url),'utf8'),/d-flex align-items-end gap-2/);
+    assert.match(fs.readFileSync(new URL('../app/views/language-picker.php',import.meta.url),'utf8'),/language-picker-inline/);
+    const styles=fs.readFileSync(new URL('../public/assets/css/foundation.css',import.meta.url),'utf8');
+    assert.match(styles,/\.language-picker-inline \{[^}]*flex-wrap: nowrap/);
+    assert.match(styles,/\.language-picker-inline \.btn \{ flex: 0 0 auto; white-space: nowrap; \}/);
+    assert.doesNotMatch(view,/foundation-login-brand/);
 });

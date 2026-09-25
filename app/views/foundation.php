@@ -2,7 +2,7 @@
 <html lang="<?= h($language) ?>"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>o8 · <?= h(tr('setup.pageTitle')) ?></title><link rel="stylesheet" href="<?= h($publicPath) ?>/assets/vendor/bootstrap/bootstrap.min.css"><link rel="stylesheet" href="<?= h($publicPath) ?>/assets/css/app.css?v=<?= h(filemtime(dirname(__DIR__,2).'/public/assets/css/app.css')) ?>"><?php if ($section==='evaluation'): ?><link rel="stylesheet" href="<?= h($publicPath) ?>/assets/css/components.css?v=<?= h(filemtime(dirname(__DIR__,2).'/public/assets/css/components.css')) ?>"><?php endif ?><link rel="stylesheet" href="<?= h($publicPath) ?>/assets/css/foundation.css?v=<?= h(filemtime(dirname(__DIR__,2).'/public/assets/css/foundation.css')) ?>"></head>
 <body class="foundation-page"<?php if ($appearancePreferences!==null): ?> data-o8-preferences="<?= h(json_encode($appearancePreferences,JSON_THROW_ON_ERROR)) ?>" data-o8-context="<?= h($_SESSION['actor']['context_token']??'') ?>" data-o8-csrf="<?= h($_SESSION['csrf']) ?>"<?php endif ?>><?php require __DIR__.'/icons.php'; ?>
 <header class="app-header foundation-app-header">
-    <a class="brand" href="?section=<?= $actor && $actor->kind==='tenant'?'documents':'choose' ?>"><span class="brand-mark">o<span>8</span></span></a>
+    <a class="brand" href="?section=<?= $actor && $actor->kind==='tenant'?'documents':'choose' ?>"><img class="brand-logo" src="<?= h($publicPath) ?>/images/o8logo.png" alt="o8"></a>
     <div class="flex-grow-1 foundation-context"><strong><?= $actor ? h(tr('navigation.signedInAs',['name'=>$actor->row['display_name']])) : h(tr('navigation.product')) ?></strong><?php if ($actor && $actor->kind==='tenant'): ?><div class="small text-body-secondary"><?= h(tr('navigation.tenantRole',['tenant'=>$actor->row['tenant_name'],'role'=>$actor->row['role']])) ?></div><?php endif ?></div>
     <?php if ($actor): ?><nav class="header-tools" aria-label="<?= h(tr('navigation.main')) ?>">
         <?php if ($actor->kind==='tenant'): ?>
@@ -27,9 +27,6 @@
         <form method="post"><?php postFields('logout',''); ?><button class="btn btn-surface" type="submit"><?= h(tr('common.logout')) ?></button></form>
     </nav><?php endif ?>
 </header><main class="foundation-main <?= $section==='evaluation'?'evaluation-page':'' ?>"><div class="foundation-content">
-<header class="foundation-header">
-<h1>o8</h1>
-</header>
 <?php if (!$actor && !$fatal && !$installed) require __DIR__.'/language-picker.php'; ?>
 <?php if ($error): ?><div role="alert" class="alert alert-danger"><?= h($error) ?></div><?php endif ?>
 <?php if ($fatal && $setupDiagnostics): ?><section class="card foundation-panel mb-3"><div class="card-body p-4"><h2 class="h5"><?= h(tr('setup.diagnosticsTitle')) ?></h2><p class="small text-body-secondary"><?= h(tr('setup.diagnosticsPrivacy')) ?></p><dl class="mb-0"><?php foreach ($setupDiagnostics as $diagnostic): ?><div class="mb-2"><dt class="small text-body-secondary"><?= h(O8\Core\Languages::display($languageCatalog,$language,$diagnostic['Prüfung'])) ?></dt><dd class="mb-0"><?= h(O8\Core\Languages::display($languageCatalog,$language,$diagnostic['Ergebnis'])) ?></dd></div><?php endforeach ?></dl></div></section><?php endif ?>
