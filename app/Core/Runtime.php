@@ -22,8 +22,11 @@ final class Runtime
     {
         $file = $this->path . '/' . $name . '.json';
         if (!is_file($file)) return null;
-        $data = json_decode((string)file_get_contents($file), true, 32, JSON_THROW_ON_ERROR);
-        if (!is_array($data)) throw new \RuntimeException('Ungültiger Systemzustand.');
+        $contents=file_get_contents($file);
+        if ($contents===false) throw new \RuntimeException('Systemdatei storage/system/'.$name.'.json kann nicht gelesen werden. Rechte für den Web-PHP-Benutzer prüfen.');
+        try { $data=json_decode($contents, true, 32, JSON_THROW_ON_ERROR); }
+        catch (\JsonException) { throw new \RuntimeException('Systemdatei storage/system/'.$name.'.json enthält ungültiges JSON. Bei einer nachweislich noch unbenutzten Erstinstallation diese Datei entfernen; bei einer bestehenden Installation aus dem Backup wiederherstellen.'); }
+        if (!is_array($data)) throw new \RuntimeException('Systemdatei storage/system/'.$name.'.json enthält keinen gültigen Systemzustand. Bei einer bestehenden Installation aus dem Backup wiederherstellen.');
         return $data;
     }
     public function write(string $name, array $value): void
@@ -47,7 +50,10 @@ final class Runtime
     {
         return $this->locked(function (): array {
             $value = $this->read('installation');
-            if ($value) return $value;
+            if ($value) {
+                if (!is_string($value['id']??null) || !preg_match('/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/D',$value['id']) || !is_string($value['key']??null) || !preg_match('/^[a-f0-9]{64}$/D',$value['key'])) throw new \RuntimeException('Systemdatei storage/system/installation.json ist unvollständig oder ungültig. Bei einer bestehenden Installation aus dem Backup wiederherstellen.');
+                return $value;
+            }
             $value = ['id'=>self::uuid(), 'key'=>bin2hex(random_bytes(32))];
             $this->write('installation', $value);
             return $value;
