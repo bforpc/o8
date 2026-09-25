@@ -29,11 +29,19 @@ function setupDiagnostics(string $root,bool $secure,?array $config): array {
     $mode=static function(string $path): string { $value=@fileperms($path); return $value===false?'unbekannt':sprintf('%04o',$value&0777); };
     $webUser='nicht verfügbar';
     if (function_exists('posix_geteuid') && function_exists('posix_getpwuid')) { $row=posix_getpwuid(posix_geteuid()); if (is_array($row) && isset($row['name'])) $webUser=$row['name'].' (UID '.posix_geteuid().')'; }
+    $pdoMysql=class_exists(\PDO::class) && in_array('mysql',\PDO::getAvailableDrivers(),true);
+    $missing=[];
+    if (!$pdoMysql) $missing[]='pdo_mysql';
+    if (!function_exists('mb_strtolower')) $missing[]='mbstring';
+    if (!class_exists(\finfo::class)) $missing[]='fileinfo';
+    if (!function_exists('sodium_crypto_secretbox')) $missing[]='sodium';
     $httpsValue=(string)($_SERVER['HTTPS']??''); $scheme=(string)($_SERVER['REQUEST_SCHEME']??'');
     $systemState=is_link($system)?'FEHLER: Symlink ist nicht zulässig.':(!file_exists($system)?'FEHLER: fehlt. Vorher anlegen oder Schreibrecht auf storage geben.':(!is_dir($system)?'FEHLER: kein Verzeichnis.':(!is_writable($system)?'FEHLER: nicht beschreibbar.':'OK: vorhanden und beschreibbar (Rechte '.$mode($system).').')));
     $sessionState=!is_dir($sessions)?'Wird beim ersten erfolgreichen Aufruf angelegt.':(is_link($sessions)?'FEHLER: Symlink ist nicht zulässig.':(!is_writable($sessions)?'FEHLER: nicht beschreibbar.':(($permissions=(int)octdec($mode($sessions)))&0077?'FEHLER: Rechte '.$mode($sessions).' sind zu offen; erforderlich ist 0700.':'OK: vorhanden mit Rechten '.$mode($sessions).'.')));
     return [
         ['Prüfung'=>'Web-PHP-Benutzer','Ergebnis'=>$webUser],
+        ['Prüfung'=>'PHP-Version','Ergebnis'=>version_compare(PHP_VERSION,'8.2.0','>=')?'OK: PHP '.PHP_VERSION.'.':'FEHLER: PHP '.PHP_VERSION.' erkannt; o8 benötigt PHP 8.2 oder neuer.'],
+        ['Prüfung'=>'Erforderliche PHP-Erweiterungen','Ergebnis'=>$missing===[]?'OK: PDO MySQL, mbstring, fileinfo und Sodium verfügbar.':'FEHLER: fehlt: '.implode(', ' ).'. Die Erweiterung für die Web-PHP-Version installieren und den Webserver/PHP-FPM neu starten.'],
         ['Prüfung'=>'HTTPS-Erkennung','Ergebnis'=>$secure?'OK: von PHP erkannt.':'FEHLER: von PHP nicht erkannt (HTTPS='.($httpsValue===''?'nicht gesetzt':$httpsValue).($scheme!==''?', REQUEST_SCHEME='.$scheme:'').'). Apache/PHP muss HTTPS=on setzen.'],
         ['Prüfung'=>'Lokale Konfiguration','Ergebnis'=>$config?'OK: config.php wurde gelesen.':(is_file($root.'/config.php')?'FEHLER: config.php ist vorhanden, aber ungültig oder nicht lesbar.':'OK: noch keine config.php; der Webinstaller fragt die Datenbankdaten ab.')],
         ['Prüfung'=>'storage/system','Ergebnis'=>$systemState],
@@ -42,6 +50,7 @@ function setupDiagnostics(string $root,bool $secure,?array $config): array {
 }
 function databaseFailureSummary(PDOException $exception): string {
     $code=(int)($exception->errorInfo[1]??0);
+    if (str_contains(strtolower($exception->getMessage()),'could not find driver')) return 'PHP-Erweiterung pdo_mysql fehlt oder ist für den Webserver nicht aktiviert. Die passende PHP-MySQL-Erweiterung installieren und den Webserver/PHP-FPM neu starten.';
     return match($code) {
         1044=>'Datenbankzugriff verweigert: Dem Benutzer fehlt die Berechtigung auf diese Datenbank.',
         1045=>'Datenbank-Anmeldung abgelehnt: Datenbankbenutzer, Kennwort oder zulässigen Host prüfen.',
@@ -49,6 +58,20 @@ function databaseFailureSummary(PDOException $exception): string {
         2002,2003=>'Datenbankserver nicht erreichbar: MariaDB/MySQL-Dienst, Host, Port und Firewall prüfen.',
         default=>'Datenbankverbindung fehlgeschlagen'.($code?" (Treiberfehler $code).":'. Zugangsdaten, Datenbankname, Berechtigungen und laufenden MariaDB-/MySQL-Dienst prüfen.'),
     };
+}
+function safeStartupFailureSummary(Throwable $exception): string {
+    if ($exception instanceof PDOException) return databaseFailureSummary($exception);
+    if ($exception instanceof RuntimeException || $exception instanceof InvalidArgumentException) return 'Einrichtung konnte nicht gestartet werden: '.$exception->getMessage();
+
+    // Show the actual PHP failure class without exposing paths or accidental
+    // credentials from a local configuration/driver error.
+    $detail=trim(str_replace(["\r","\n"],' ',$exception->getMessage()));
+    $detail=preg_replace('#(?:[A-Za-z]:)?/(?:[^\s:]+/?)*#u','<Pfad>',$detail)??'';
+    $detail=preg_replace('/\b(pass(?:word|wort)?|secret|token|key)\b\s*[:=]\s*[^\s,;]+/iu','$1=<ausgeblendet>',$detail)??'';
+    $detail=trim($detail);
+    if ($detail==='') $detail='ohne weitere sichere Detailangabe';
+    if (strlen($detail)>260) $detail=substr($detail,0,257).'…';
+    return 'PHP-Laufzeitfehler ('.get_debug_type($exception).'): '.$detail;
 }
 function field(string $key): string { return is_string($_POST[$key]??null) ? $_POST[$key] : ''; }
 function postFields(string $action, string $section): void {
@@ -309,7 +332,7 @@ try {
 } catch (Throwable $exception) {
     $fatal=true; http_response_code(503);
     $setupDiagnostics=setupDiagnostics($root,$secure,$config);
-    $error=$schemaPending?'Datenbankschema wird aktualisiert. Auf dem Server php bin/setup.php upgrade ausführen; keine Neuinstallation erforderlich.':($exception instanceof PDOException ? databaseFailureSummary($exception) : ($exception instanceof RuntimeException || $exception instanceof InvalidArgumentException ? 'Einrichtung konnte nicht gestartet werden: '.$exception->getMessage() : 'Einrichtung konnte nicht gestartet werden. Die Installationsdiagnose unten zeigt die sicheren Prüfwerte.'));
+    $error=$schemaPending?'Datenbankschema wird aktualisiert. Auf dem Server php bin/setup.php upgrade ausführen; keine Neuinstallation erforderlich.':safeStartupFailureSummary($exception);
 }
 if (isset($_GET['api'])) { header('Content-Type: application/json; charset=utf-8'); echo json_encode(['success'=>false,'error'=>$error]); exit; }
 if (($_GET['overlay']??'')==='1' && !$fatal && $actor && in_array($actor->kind,['tenant','account'],true) && !$actor->row['must_change_password'] && !($actor->row['bootstrap_pending']??false)) {
