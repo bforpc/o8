@@ -75,6 +75,8 @@ test('folder tree expansion is saved per-user and temporary drag expansion is re
     assert.match(source,/preferences\.collapsedFolders=\[\.\.\.collapsedFolderIds\]\.map\(Number\)/);
     assert.match(source,/data-folder-toggle/);
     assert.match(source,/hiddenById\.get\(parent\)===true \|\| collapsedFolderIds\.has\(parent\)/);
+    assert.match(source,/const subtreeFolderCount=\(id,seen=new Set\(\)\)=>/);
+    assert.match(source,/countOverride=isCollapsed\?subtreeFolderCount\(id\):null/);
     assert.match(source,/dragCollapsedSnapshot=new Set\(collapsedFolderIds\)/);
     assert.match(source,/const restoreDragFolderExpansion = \(\) =>/);
     assert.match(source,/restoreDragFolderExpansion\(\); clearDropTarget\(\)/);

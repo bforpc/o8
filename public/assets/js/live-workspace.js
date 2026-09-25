@@ -110,8 +110,9 @@ async function savePreferences() {
 }
 function folders() {
     const linked = new Set((state.document?.folders || []).map(String));
-    const button = (scope, name, real = false, depth = 0, hasChildren = false, isCollapsed = false, hidden = false) => {
-        const count = scope === 'inbox' ? state.filteredInboxCount ?? state.meta.inboxCount ?? 0 : scope === 'unfiled' ? state.filteredUnfiledCount ?? state.meta.unfiledCount ?? 0 : scope === 'all' ? state.filteredAllCount ?? state.meta.allCount ?? 0 : scope === 'trash' ? state.filteredTrashCount ?? state.meta.trashCount ?? 0 : state.filteredFolderCounts?.[scope] ?? state.meta.folderCounts?.[scope] ?? 0;
+    const button = (scope, name, real = false, depth = 0, hasChildren = false, isCollapsed = false, hidden = false, countOverride = null) => {
+        const directCount = scope === 'inbox' ? state.filteredInboxCount ?? state.meta.inboxCount ?? 0 : scope === 'unfiled' ? state.filteredUnfiledCount ?? state.meta.unfiledCount ?? 0 : scope === 'all' ? state.filteredAllCount ?? state.meta.allCount ?? 0 : scope === 'trash' ? state.filteredTrashCount ?? state.meta.trashCount ?? 0 : state.filteredFolderCounts?.[scope] ?? state.meta.folderCounts?.[scope] ?? 0;
+        const count = countOverride ?? directCount;
         const rowHidden=hidden?' hidden':'';
         const toggle=hasChildren?'<button type="button" class="folder-toggle" data-folder-toggle="'+scope+'" aria-expanded="'+(!isCollapsed)+'" aria-label="'+esc(tr(isCollapsed?'expandFolder':'collapseFolder',{name}))+'" title="'+esc(tr(isCollapsed?'expandFolder':'collapseFolder',{name}))+'">'+(isCollapsed?'›':'⌄')+'</button>':'<span class="folder-toggle-placeholder" aria-hidden="true"></span>';
         return '<div class="folder-nav-row" style="--folder-depth:' + depth + '"'+rowHidden+'>'+toggle+'<button class="folder-nav-item ' + (String(state.scope) === String(scope) ? 'active ' : '') + (linked.has(String(scope)) ? 'has-selected-document' : '') + '" data-scope="' + scope + '"' + (real ? ' data-drop-folder="' + scope + '"' : '') + '><svg class="icon small-icon" aria-hidden="true"><use href="#i-' + (scope === 'inbox' ? 'inbox' : scope === 'trash' ? 'trash' : scope === 'all' ? 'document' : 'folder') + '"/></svg><span>' + esc(name) + '</span>' + (real || scope === 'unfiled' || scope === 'inbox' || scope === 'trash' || scope === 'all' ? '<span class="count" aria-label="' + esc(tr('folderCount',{count})) + '">' + count + '</span>' : '') + '</button>' + (real ? '<button class="btn btn-sm icon-btn folder-manage" data-edit-folder="' + scope + '" aria-label="' + esc(tr('editFolder',{name})) + '" title="' + esc(tr('editFolderTitle')) + '"><svg class="icon small-icon" aria-hidden="true"><use href="#i-settings"/></svg></button>' : scope === 'trash' ? '<button class="btn btn-sm icon-btn folder-manage" data-empty-trash aria-label="' + esc(tr('emptyTrash')) + '" title="' + esc(tr('emptyTrash')) + '"><svg class="icon small-icon" aria-hidden="true"><use href="#i-settings"/></svg></button>' : '') + '</div>';
@@ -121,12 +122,18 @@ function folders() {
     const visit = (parent, depth, seen = new Set()) => { for (const folder of (byParent.get(parent) || [])) { if (seen.has(String(folder.id))) continue; seen.add(String(folder.id)); ordered.push({folder,depth}); visit(String(folder.id), depth + 1, seen); } };
     visit('root', 0);
     for (const folder of state.meta.folders) if (!ordered.some(x => Number(x.folder.id) === Number(folder.id))) ordered.push({folder,depth:0});
+    const directFolderCount=id=>state.filteredFolderCounts?.[id] ?? state.meta.folderCounts?.[id] ?? 0;
+    const subtreeFolderCount=(id,seen=new Set())=>{
+        const key=String(id); if (seen.has(key)) return 0; seen.add(key);
+        return Number(directFolderCount(key))+((byParent.get(key)||[]).reduce((sum,child)=>sum+subtreeFolderCount(child.id,seen),0));
+    };
     const hiddenById=new Map();
     const folderRows=ordered.map(({folder,depth})=>{
         const id=String(folder.id), parent=folder.parent_id===null?null:String(folder.parent_id);
         const hidden=parent!==null && (hiddenById.get(parent)===true || collapsedFolderIds.has(parent));
         hiddenById.set(id,hidden);
-        return button(id,folder.name,true,depth,(byParent.get(id)||[]).length>0,collapsedFolderIds.has(id),hidden);
+        const isCollapsed=collapsedFolderIds.has(id), countOverride=isCollapsed?subtreeFolderCount(id):null;
+        return button(id,folder.name,true,depth,(byParent.get(id)||[]).length>0,isCollapsed,hidden,countOverride);
     }).join('');
     $('folderNavigationDesktop').innerHTML = button('inbox',tr('scopeInbox')) + button('all',tr('scopeAll')) + button('unfiled',tr('scopeUnfiled')) + '<div class="folder-nav-label">' + tr('foldersHeading') + '</div>' + folderRows + '<div class="folder-nav-label">' + tr('manageHeading') + '</div>' + button('trash',tr('scopeTrash'));
 }
