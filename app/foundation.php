@@ -18,12 +18,38 @@ header('Cache-Control: no-store');
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: no-referrer');
 header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
-$root=dirname(__DIR__); $message=''; $error=''; $installed=false; $actor=null; $fatal=false; $tenants=[]; $users=[]; $appearancePreferences=null;
+$root=dirname(__DIR__); $message=''; $error=''; $installed=false; $actor=null; $fatal=false; $tenants=[]; $users=[]; $appearancePreferences=null; $config=null; $secure=false; $setupDiagnostics=[];
 $section=is_string($_GET['section']??null) ? $_GET['section'] : '';
 $deletionJob=null; $deletionReview=null; $deletionId=0;
 $choices=[]; $schemaPending=false; $inviteCode=''; $importSources=[]; $sourceWorkerActive=false; $aiConfiguration=[]; $aiWorkerActive=false; $aiModels=[];
 $operatorLogin=($_GET['login']??'')==='operator';
 function h(mixed $value): string { return htmlspecialchars((string)$value,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8'); }
+function setupDiagnostics(string $root,bool $secure,?array $config): array {
+    $system=$root.'/storage/system'; $sessions=$system.'/sessions';
+    $mode=static function(string $path): string { $value=@fileperms($path); return $value===false?'unbekannt':sprintf('%04o',$value&0777); };
+    $webUser='nicht verfügbar';
+    if (function_exists('posix_geteuid') && function_exists('posix_getpwuid')) { $row=posix_getpwuid(posix_geteuid()); if (is_array($row) && isset($row['name'])) $webUser=$row['name'].' (UID '.posix_geteuid().')'; }
+    $httpsValue=(string)($_SERVER['HTTPS']??''); $scheme=(string)($_SERVER['REQUEST_SCHEME']??'');
+    $systemState=is_link($system)?'FEHLER: Symlink ist nicht zulässig.':(!file_exists($system)?'FEHLER: fehlt. Vorher anlegen oder Schreibrecht auf storage geben.':(!is_dir($system)?'FEHLER: kein Verzeichnis.':(!is_writable($system)?'FEHLER: nicht beschreibbar.':'OK: vorhanden und beschreibbar (Rechte '.$mode($system).').')));
+    $sessionState=!is_dir($sessions)?'Wird beim ersten erfolgreichen Aufruf angelegt.':(is_link($sessions)?'FEHLER: Symlink ist nicht zulässig.':(!is_writable($sessions)?'FEHLER: nicht beschreibbar.':(($permissions=(int)octdec($mode($sessions)))&0077?'FEHLER: Rechte '.$mode($sessions).' sind zu offen; erforderlich ist 0700.':'OK: vorhanden mit Rechten '.$mode($sessions).'.')));
+    return [
+        ['Prüfung'=>'Web-PHP-Benutzer','Ergebnis'=>$webUser],
+        ['Prüfung'=>'HTTPS-Erkennung','Ergebnis'=>$secure?'OK: von PHP erkannt.':'FEHLER: von PHP nicht erkannt (HTTPS='.($httpsValue===''?'nicht gesetzt':$httpsValue).($scheme!==''?', REQUEST_SCHEME='.$scheme:'').'). Apache/PHP muss HTTPS=on setzen.'],
+        ['Prüfung'=>'Lokale Konfiguration','Ergebnis'=>$config?'OK: config.php wurde gelesen.':(is_file($root.'/config.php')?'FEHLER: config.php ist vorhanden, aber ungültig oder nicht lesbar.':'OK: noch keine config.php; der Webinstaller fragt die Datenbankdaten ab.')],
+        ['Prüfung'=>'storage/system','Ergebnis'=>$systemState],
+        ['Prüfung'=>'storage/system/sessions','Ergebnis'=>$sessionState],
+    ];
+}
+function databaseFailureSummary(PDOException $exception): string {
+    $code=(int)($exception->errorInfo[1]??0);
+    return match($code) {
+        1044=>'Datenbankzugriff verweigert: Dem Benutzer fehlt die Berechtigung auf diese Datenbank.',
+        1045=>'Datenbank-Anmeldung abgelehnt: Datenbankbenutzer, Kennwort oder zulässigen Host prüfen.',
+        1049=>'Datenbank nicht gefunden: Datenbanknamen prüfen oder zuerst anlegen.',
+        2002,2003=>'Datenbankserver nicht erreichbar: MariaDB/MySQL-Dienst, Host, Port und Firewall prüfen.',
+        default=>'Datenbankverbindung fehlgeschlagen'.($code?" (Treiberfehler $code).":'. Zugangsdaten, Datenbankname, Berechtigungen und laufenden MariaDB-/MySQL-Dienst prüfen.'),
+    };
+}
 function field(string $key): string { return is_string($_POST[$key]??null) ? $_POST[$key] : ''; }
 function postFields(string $action, string $section): void {
     echo '<input type="hidden" name="csrf" value="'.h($_SESSION['csrf']).'"><input type="hidden" name="action" value="'.h($action).'"><input type="hidden" name="section" value="'.h($section).'">';
@@ -53,7 +79,10 @@ try {
     ini_set('session.use_strict_mode','1'); ini_set('session.use_only_cookies','1');
     $runtime=new Runtime($root.'/storage/system');
     $sessionDirectory=$runtime->path.'/sessions';
-    if (is_link($sessionDirectory) || (!is_dir($sessionDirectory) && !mkdir($sessionDirectory,0700) && !is_dir($sessionDirectory)) || !is_writable($sessionDirectory) || (fileperms($sessionDirectory)&0077)!==0) throw new RuntimeException('Geschützte Sitzungsablage nicht verfügbar.');
+    if (is_link($sessionDirectory)) throw new RuntimeException('Sitzungsablage storage/system/sessions darf kein Symlink sein.');
+    if (!is_dir($sessionDirectory) && !@mkdir($sessionDirectory,0700) && !is_dir($sessionDirectory)) throw new RuntimeException('Sitzungsablage storage/system/sessions konnte nicht angelegt werden. Schreibrechte für storage/system prüfen.');
+    if (!is_writable($sessionDirectory)) throw new RuntimeException('Sitzungsablage storage/system/sessions ist nicht beschreibbar.');
+    if ((fileperms($sessionDirectory)&0077)!==0) throw new RuntimeException('Sitzungsablage storage/system/sessions hat zu offene Rechte. Erforderlich ist 0700.');
     session_save_path($sessionDirectory);
     ini_set('session.gc_maxlifetime','604800');
     session_set_cookie_params(['lifetime'=>0,'path'=>'/','secure'=>$secure,'httponly'=>true,'samesite'=>'Strict']);
@@ -279,7 +308,8 @@ try {
     }
 } catch (Throwable $exception) {
     $fatal=true; http_response_code(503);
-    $error=$schemaPending?'Datenbankschema wird aktualisiert. Auf dem Server php bin/setup.php upgrade ausführen; keine Neuinstallation erforderlich.':($exception instanceof PDOException ? 'Datenbank nicht erreichbar. Bitte lokale config.php und Datenbankberechtigungen prüfen.' : 'Einrichtung nicht verfügbar. HTTPS, lokale Konfiguration und Schreibrechte für storage/system prüfen.');
+    $setupDiagnostics=setupDiagnostics($root,$secure,$config);
+    $error=$schemaPending?'Datenbankschema wird aktualisiert. Auf dem Server php bin/setup.php upgrade ausführen; keine Neuinstallation erforderlich.':($exception instanceof PDOException ? databaseFailureSummary($exception) : ($exception instanceof RuntimeException || $exception instanceof InvalidArgumentException ? 'Einrichtung konnte nicht gestartet werden: '.$exception->getMessage() : 'Einrichtung konnte nicht gestartet werden. Die Installationsdiagnose unten zeigt die sicheren Prüfwerte.'));
 }
 if (isset($_GET['api'])) { header('Content-Type: application/json; charset=utf-8'); echo json_encode(['success'=>false,'error'=>$error]); exit; }
 if (($_GET['overlay']??'')==='1' && !$fatal && $actor && in_array($actor->kind,['tenant','account'],true) && !$actor->row['must_change_password'] && !($actor->row['bootstrap_pending']??false)) {

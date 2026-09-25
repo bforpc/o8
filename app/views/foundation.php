@@ -31,6 +31,7 @@
 <h1>o8</h1>
 </header>
 <?php if ($error): ?><div role="alert" class="alert alert-danger"><?= h($error) ?></div><?php endif ?>
+<?php if ($fatal && $setupDiagnostics): ?><section class="card foundation-panel mb-3"><div class="card-body p-4"><h2 class="h5">Installationsdiagnose</h2><p class="small text-body-secondary">Diese Angaben enthalten keine Datenbankkennwörter oder anderen Zugangsdaten.</p><dl class="mb-0"><?php foreach ($setupDiagnostics as $diagnostic): ?><div class="mb-2"><dt class="small text-body-secondary"><?= h($diagnostic['Prüfung']) ?></dt><dd class="mb-0"><?= h($diagnostic['Ergebnis']) ?></dd></div><?php endforeach ?></dl></div></section><?php endif ?>
 <?php if ($message): ?><div role="status" class="alert alert-success"><?= h($message) ?></div><?php endif ?>
 <?php if (!$fatal): ?>
 <section class="card foundation-panel"><div class="card-body p-4">

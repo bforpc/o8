@@ -6,8 +6,9 @@ final class Runtime
 {
     public function __construct(public readonly string $path)
     {
-        if (is_link($path)) throw new \RuntimeException('Systemverzeichnis darf kein Symlink sein.');
-        if (!is_dir($path) && !mkdir($path, 0770, true) && !is_dir($path)) throw new \RuntimeException('Systemverzeichnis nicht verfügbar.');
+        if (is_link($path)) throw new \RuntimeException('Systemverzeichnis storage/system darf kein Symlink sein.');
+        if (!is_dir($path) && !@mkdir($path, 0770, true) && !is_dir($path)) throw new \RuntimeException('Systemverzeichnis storage/system konnte nicht angelegt werden. Der Web-PHP-Benutzer benötigt Schreibrecht auf storage oder storage/system muss vorher angelegt werden.');
+        if (!is_writable($path)) throw new \RuntimeException('Systemverzeichnis storage/system ist für den Web-PHP-Benutzer nicht beschreibbar.');
     }
     public static function uuid(): string
     {
@@ -38,7 +39,8 @@ final class Runtime
     public function locked(callable $callback): mixed
     {
         $file = fopen($this->path . '/setup.lock', 'c');
-        if (!$file || !flock($file, LOCK_EX | LOCK_NB)) throw new \RuntimeException('Eine Einrichtung läuft bereits.');
+        if (!$file) throw new \RuntimeException('Sperrdatei in storage/system kann nicht erstellt werden. Schreibrechte für den Web-PHP-Benutzer prüfen.');
+        if (!flock($file, LOCK_EX | LOCK_NB)) { fclose($file); throw new \RuntimeException('Eine Einrichtung läuft bereits.'); }
         try { return $callback(); } finally { flock($file, LOCK_UN); fclose($file); }
     }
     public function identity(): array
