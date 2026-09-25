@@ -9,15 +9,18 @@ import { choiceDialog, confirmDialog } from './dialog.js';
 
 const $ = id => document.getElementById(id);
 const root = $('liveApp');
+const tr = (key,values={}) => window.o8Translate ? window.o8Translate(`workspace.${key}`,values) : '';
+const searchTr = (key,values={}) => window.o8Translate ? window.o8Translate(`search.${key}`,values) : '';
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const dateLabel = value => /^\d{4}-\d{2}-\d{2}$/.test(String(value ?? '')) ? `${value.slice(8,10)}.${value.slice(5,7)}.${value.slice(0,4)}` : (value || 'Ohne Datum');
+const dateLabel = value => /^\d{4}-\d{2}-\d{2}$/.test(String(value ?? '')) ? `${value.slice(8,10)}.${value.slice(5,7)}.${value.slice(0,4)}` : (value || tr('noDate'));
 const grossLabel = doc => doc.gross_amount === null || doc.gross_amount === undefined ? '' : new Intl.NumberFormat('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(doc.gross_amount)) + ' ' + doc.currency;
 const state = { scope: 'inbox', localScope: 'inbox', searchMode: 'global', page: 1, document: null, meta: null, filteredFolderCounts: null, filteredInboxCount: null, filteredAllCount: null, filteredTrashCount: null, dirty: false, querySequence: 0, documentSequence: 0, selected: new Set(), inboundSelected: new Set(), rows: [] };
 let picker, bulkPicker, invoiceEditor, layout, preferences = { widths: [18,27,29,26], mode: 'system', theme: structuredClone(DEFAULT_THEME) }, pending = 0, waitTimer, writing = false, suppressWaiting = false;
+let collapsedFolderIds=new Set(), preferenceQueue=Promise.resolve();
 let noticeTimer, autoSearchTimer, sourcePollTimer;
 let inboundActionItems=[];
-const aiStatusLabel = value => ({not_requested:'KI nicht angefordert',queued:'KI wartet',running:'KI läuft',ready:'KI-Daten vorhanden',failed:'KI-Fehler',completed:'Abgeschlossen'})[value] || value;
-const aiErrorLabel = value => ({text_too_short:'Zu wenig lesbarer Text',extract_tool_missing:'Texterkennungsprogramm fehlt',extract_failed:'Texterkennung fehlgeschlagen',extract_timeout:'Texterkennung hat zu lange gedauert',ai_timeout:'Zeitlimit des KI-Dienstes überschritten',ai_dns_failed:'KI-Dienst konnte per DNS nicht aufgelöst werden',ai_tls_failed:'Sichere TLS-Verbindung zum KI-Dienst fehlgeschlagen',ai_connection_failed:'KI-Dienst nicht erreichbar',ai_http_error:'KI-Dienst hat den Aufruf abgelehnt',ai_response_too_large:'KI-Antwort ist zu groß',invalid_ai_response:'Antwortformat des KI-Dienstes ist ungültig',invalid_ai_json:'KI-Ergebnis ist kein gültiges JSON',inbound_changed:'Eingangselement wurde zwischenzeitlich geändert',ai_item_failed:'Mindestens eine Analyse ist fehlgeschlagen'})[value] || value || '';
+const aiStatusLabel = value => ({not_requested:tr('aiNotRequested'),queued:tr('aiQueued'),running:tr('aiRunning'),ready:tr('aiReady'),failed:tr('aiFailed'),completed:tr('completed')})[value] || value;
+const aiErrorLabel = value => ({text_too_short:t('textTooShort'),extract_tool_missing:t('extractToolMissing'),extract_failed:t('extractFailed'),extract_timeout:t('extractTimeout'),ai_timeout:t('aiTimeout'),ai_dns_failed:t('aiDnsFailed'),ai_tls_failed:t('aiTlsFailed'),ai_connection_failed:t('aiConnectionFailed'),ai_http_error:t('aiHttpError'),ai_response_too_large:t('aiResponseTooLarge'),invalid_ai_response:t('invalidAiResponse'),invalid_ai_json:t('invalidAiJson'),inbound_changed:t('inboundChanged'),ai_item_failed:t('aiItemFailed')})[value] || value || '';
 function error(problem) { $('liveError').textContent = problem.message || String(problem); $('liveError').hidden = false; }
 function notice(message) {
     clearTimeout(noticeTimer);
@@ -47,8 +50,8 @@ async function api(action, input = {}, write = false) {
     try {
         const response = await fetch(url(action, write ? {} : input), { method: write ? 'POST' : 'GET', body: write ? data(input) : undefined, credentials: 'same-origin', cache: 'no-store' });
         let json;
-        try { json = await response.json(); } catch { throw new Error('Keine gültige Serverantwort. Bitte neu laden und PHP-/Uploadlimits prüfen.'); }
-        if (!response.ok || !json.success) throw new Error(json.error || 'Aktion fehlgeschlagen.');
+        try { json = await response.json(); } catch { throw new Error(window.o8TranslateSource?.('Keine gültige Serverantwort. Bitte neu laden und PHP-/Uploadlimits prüfen.') || 'Keine gültige Serverantwort. Bitte neu laden und PHP-/Uploadlimits prüfen.'); }
+        if (!response.ok || !json.success) throw new Error(json.error || window.o8TranslateSource?.('Aktion fehlgeschlagen.') || 'Aktion fehlgeschlagen.');
         return json.data;
     } finally { busy(false); }
 }
@@ -70,7 +73,7 @@ function syncSelection() {
     all.indeterminate = selectedCount > 0 && selectedCount < state.rows.length;
     all.disabled = !state.rows.length;
     $('openBulkEditor').disabled = !selectedCount;
-    $('bulkEditorTrigger').title = selectedCount ? `${selectedCount} ausgewählte Eingangselemente/Dokumente bearbeiten` : 'Massenänderung: Bitte mindestens ein Dokument per Checkbox auswählen.';
+    $('bulkEditorTrigger').title = window.o8TranslateSource?.(selectedCount ? `${selectedCount} ausgewählte Eingangselemente/Dokumente bearbeiten` : 'Massenänderung: Bitte mindestens ein Dokument per Checkbox auswählen.') || (selectedCount ? `${selectedCount} ausgewählte Eingangselemente/Dokumente bearbeiten` : 'Massenänderung: Bitte mindestens ein Dokument per Checkbox auswählen.');
     $('documentList').querySelectorAll('[data-select]').forEach(input => { input.checked = state.selected.has(Number(input.dataset.select)); });
     $('documentList').querySelectorAll('[data-inbound-select]').forEach(input => { input.checked = state.inboundSelected.has(Number(input.dataset.inboundSelect)); });
 }
@@ -79,43 +82,58 @@ async function metadata(initial = false) {
     state.meta = await api('meta');
     $('uploadOpen').disabled = !state.meta.storageReady;
     $('uploadAction').title = state.meta.storageReady ? '' : state.meta.storageMessage;
-    $('uploadOpen').setAttribute('aria-label', state.meta.storageReady ? 'Dokumente hochladen' : 'Dokumente hochladen nicht verfügbar: ' + state.meta.storageMessage);
-    $('sourceOpen').title = !state.meta.storageReady ? 'Quellen anzeigen · Dokumentablage noch nicht bereit' : state.meta.sources?.some(source => Number(source.enabled)) ? 'IMAP- oder WebDAV-Quelle abrufen' : 'Quellen anzeigen · noch keine aktive Quelle';
+    $('uploadOpen').setAttribute('aria-label', state.meta.storageReady ? window.o8Translate?.('navigation.upload') : tr('uploadUnavailable',{reason:state.meta.storageMessage}));
+    $('sourceOpen').title = !state.meta.storageReady ? tr('sourcesUnavailable') : state.meta.sources?.some(source => Number(source.enabled)) ? window.o8Translate?.('navigation.sourceFetchTitle') : tr('noEnabledSource');
     for (const id of ['tagFilter','notTagFilter']) {
-        const selected = $(id).value; $(id).innerHTML = options(state.meta.tags, 'Keine Einschränkung'); $(id).value = selected;
+        const selected = $(id).value; $(id).innerHTML = options(state.meta.tags, searchTr('noRestriction')); $(id).value = selected;
     }
-    if ($('ownerFilter')) { const selected = $('ownerFilter').value; $('ownerFilter').innerHTML = options(state.meta.users, 'Alle Benutzer'); $('ownerFilter').value = selected; }
+    if ($('ownerFilter')) { const selected = $('ownerFilter').value; $('ownerFilter').innerHTML = options(state.meta.users, searchTr('allUsers')); $('ownerFilter').value = selected; }
     if (initial) {
         preferences = state.meta.preferences; preferences.theme = normalizeTheme(preferences.theme || {mode:preferences.mode}); preferences.mode = preferences.theme.mode;
+        const validFolderIds=new Set(state.meta.folders.map(folder=>String(folder.id)));
+        collapsedFolderIds=new Set((preferences.collapsedFolders||[]).map(String).filter(id=>validFolderIds.has(id)));
+        preferences.collapsedFolders=[...collapsedFolderIds].map(Number);
         const storage = { getItem: () => JSON.stringify(preferences.widths), setItem: (_, value) => { preferences.widths = JSON.parse(value); savePreferences(); } };
         layout = new ColumnLayout($('documentWorkspace'), storage, 'authenticated');
         theme();
     }
     folders();
-    if ($('linkFolder')) { const selected = $('linkFolder').value; $('linkFolder').innerHTML = options(state.meta.folders,'Ordner wählen'); $('linkFolder').value = selected; }
+    if ($('linkFolder')) { const selected = $('linkFolder').value; $('linkFolder').innerHTML = options(state.meta.folders,tr('chooseFolder')); $('linkFolder').value = selected; }
 }
 function theme() { preferences.theme = normalizeTheme(preferences.theme || {mode:preferences.mode}); preferences.mode = preferences.theme.mode; applyTheme(preferences.theme); rememberTheme(preferences.theme); }
 async function savePreferences() {
-    try { await api('preferences', {preferences: JSON.stringify(preferences)}, true); }
+    preferences.collapsedFolders=[...collapsedFolderIds].map(Number);
+    const snapshot=JSON.stringify(preferences);
+    preferenceQueue=preferenceQueue.catch(()=>{}).then(()=>api('preferences',{preferences:snapshot},true));
+    try { await preferenceQueue; }
     catch (problem) { error(new Error('Anzeigeeinstellungen nicht gespeichert: ' + problem.message)); }
 }
 function folders() {
     const linked = new Set((state.document?.folders || []).map(String));
-    const button = (scope, name, real = false, depth = 0) => {
+    const button = (scope, name, real = false, depth = 0, hasChildren = false, isCollapsed = false, hidden = false) => {
         const count = scope === 'inbox' ? state.filteredInboxCount ?? state.meta.inboxCount ?? 0 : scope === 'unfiled' ? state.filteredUnfiledCount ?? state.meta.unfiledCount ?? 0 : scope === 'all' ? state.filteredAllCount ?? state.meta.allCount ?? 0 : scope === 'trash' ? state.filteredTrashCount ?? state.meta.trashCount ?? 0 : state.filteredFolderCounts?.[scope] ?? state.meta.folderCounts?.[scope] ?? 0;
-        return '<div class="folder-nav-row" style="--folder-depth:' + depth + '"><button class="folder-nav-item ' + (String(state.scope) === String(scope) ? 'active ' : '') + (linked.has(String(scope)) ? 'has-selected-document' : '') + '" data-scope="' + scope + '"' + (real ? ' data-drop-folder="' + scope + '"' : '') + '><svg class="icon small-icon" aria-hidden="true"><use href="#i-' + (scope === 'inbox' ? 'inbox' : scope === 'trash' ? 'trash' : scope === 'all' ? 'document' : 'folder') + '"/></svg><span>' + esc(name) + '</span>' + (real || scope === 'unfiled' || scope === 'inbox' || scope === 'trash' || scope === 'all' ? '<span class="count" aria-label="' + count + ' Dokumente">' + count + '</span>' : '') + '</button>' + (real ? '<button class="btn btn-sm icon-btn folder-manage" data-edit-folder="' + scope + '" aria-label="Ordner ' + esc(name) + ' bearbeiten" title="Ordner bearbeiten"><svg class="icon small-icon" aria-hidden="true"><use href="#i-settings"/></svg></button>' : scope === 'trash' ? '<button class="btn btn-sm icon-btn folder-manage" data-empty-trash aria-label="Papierkorb leeren" title="Papierkorb leeren"><svg class="icon small-icon" aria-hidden="true"><use href="#i-settings"/></svg></button>' : '') + '</div>';
+        const rowHidden=hidden?' hidden':'';
+        const toggle=hasChildren?'<button type="button" class="folder-toggle" data-folder-toggle="'+scope+'" aria-expanded="'+(!isCollapsed)+'" aria-label="'+esc(tr(isCollapsed?'expandFolder':'collapseFolder',{name}))+'" title="'+esc(tr(isCollapsed?'expandFolder':'collapseFolder',{name}))+'">'+(isCollapsed?'›':'⌄')+'</button>':'<span class="folder-toggle-placeholder" aria-hidden="true"></span>';
+        return '<div class="folder-nav-row" style="--folder-depth:' + depth + '"'+rowHidden+'>'+toggle+'<button class="folder-nav-item ' + (String(state.scope) === String(scope) ? 'active ' : '') + (linked.has(String(scope)) ? 'has-selected-document' : '') + '" data-scope="' + scope + '"' + (real ? ' data-drop-folder="' + scope + '"' : '') + '><svg class="icon small-icon" aria-hidden="true"><use href="#i-' + (scope === 'inbox' ? 'inbox' : scope === 'trash' ? 'trash' : scope === 'all' ? 'document' : 'folder') + '"/></svg><span>' + esc(name) + '</span>' + (real || scope === 'unfiled' || scope === 'inbox' || scope === 'trash' || scope === 'all' ? '<span class="count" aria-label="' + esc(tr('folderCount',{count})) + '">' + count + '</span>' : '') + '</button>' + (real ? '<button class="btn btn-sm icon-btn folder-manage" data-edit-folder="' + scope + '" aria-label="' + esc(tr('editFolder',{name})) + '" title="' + esc(tr('editFolderTitle')) + '"><svg class="icon small-icon" aria-hidden="true"><use href="#i-settings"/></svg></button>' : scope === 'trash' ? '<button class="btn btn-sm icon-btn folder-manage" data-empty-trash aria-label="' + esc(tr('emptyTrash')) + '" title="' + esc(tr('emptyTrash')) + '"><svg class="icon small-icon" aria-hidden="true"><use href="#i-settings"/></svg></button>' : '') + '</div>';
     };
     const ordered = []; const byParent = new Map();
     for (const folder of state.meta.folders) { const key = folder.parent_id == null ? 'root' : String(folder.parent_id); if (!byParent.has(key)) byParent.set(key, []); byParent.get(key).push(folder); }
     const visit = (parent, depth, seen = new Set()) => { for (const folder of (byParent.get(parent) || [])) { if (seen.has(String(folder.id))) continue; seen.add(String(folder.id)); ordered.push({folder,depth}); visit(String(folder.id), depth + 1, seen); } };
     visit('root', 0);
     for (const folder of state.meta.folders) if (!ordered.some(x => Number(x.folder.id) === Number(folder.id))) ordered.push({folder,depth:0});
-    $('folderNavigationDesktop').innerHTML = button('inbox','Eingang') + button('all','Alle Dokumente') + button('unfiled','Nicht zugeordnet') + '<div class="folder-nav-label">ORDNER</div>' + ordered.map(x => button(x.folder.id,x.folder.name,true,x.depth)).join('') + '<div class="folder-nav-label">VERWALTEN</div>' + button('trash','Papierkorb');
+    const hiddenById=new Map();
+    const folderRows=ordered.map(({folder,depth})=>{
+        const id=String(folder.id), parent=folder.parent_id===null?null:String(folder.parent_id);
+        const hidden=parent!==null && (hiddenById.get(parent)===true || collapsedFolderIds.has(parent));
+        hiddenById.set(id,hidden);
+        return button(id,folder.name,true,depth,(byParent.get(id)||[]).length>0,collapsedFolderIds.has(id),hidden);
+    }).join('');
+    $('folderNavigationDesktop').innerHTML = button('inbox',tr('scopeInbox')) + button('all',tr('scopeAll')) + button('unfiled',tr('scopeUnfiled')) + '<div class="folder-nav-label">' + tr('foldersHeading') + '</div>' + folderRows + '<div class="folder-nav-label">' + tr('manageHeading') + '</div>' + button('trash',tr('scopeTrash'));
 }
 function clearDocument() {
     state.document = null; state.dirty = false; ++state.documentSequence;
-    $('documentId').textContent = ''; $('documentDetails').textContent = 'Dokument auswählen.';
-    $('documentPreview').textContent = 'Dokument auswählen.'; $('downloadFile').hidden = true; folders();
+    $('documentId').textContent = ''; $('documentDetails').textContent = tr('selectDocument');
+    $('documentPreview').textContent = tr('selectDocument'); $('downloadFile').hidden = true; folders();
 }
 function hasActiveSearch(input = Object.fromEntries(new FormData($('searchForm')))) {
     return Boolean(input.query?.trim() || ['dateFrom','dateTo','amountFrom','amountTo','invoiceNumbers','accountCode','documentType','tag','notTag','owner','includeExpired','includeNotSearchable'].some(key => input[key]) || input.resultView === 'latest');
@@ -123,15 +141,15 @@ function hasActiveSearch(input = Object.fromEntries(new FormData($('searchForm')
 function syncSearchScopeToggle() {
     const local = state.searchMode === 'local';
     const button = $('searchScopeToggle');
-    button.textContent = local ? 'im akt. Ordner' : 'Global';
-    button.setAttribute('aria-label', 'Suchbereich: ' + (local ? 'im aktuellen Ordner' : 'Global'));
+    button.textContent = local ? searchTr('localShort') : searchTr('global');
+    button.setAttribute('aria-label', searchTr('scope',{scope:local?searchTr('local'):searchTr('global')}));
     button.setAttribute('aria-pressed', local ? 'true' : 'false');
 }
 async function search() {
     hideTagsTooltip();
     const sequence = ++state.querySequence;
     const preferred = state.document?.id; const preferredInbound=Boolean(state.document?._inbound);
-    state.selected.clear(); state.inboundSelected.clear(); state.rows=[]; syncSelection(); clearDocument(); $('documentList').textContent = 'Suche läuft …';
+    state.selected.clear(); state.inboundSelected.clear(); state.rows=[]; syncSelection(); clearDocument(); $('documentList').textContent = tr('searching');
     const input = Object.fromEntries(new FormData($('searchForm')));
     const filtered = hasActiveSearch(input);
     try {
@@ -158,14 +176,14 @@ async function search() {
         }
         const displayedTotal=Number(result.total)+inbound.length;
         $('resultCount').textContent = result.latestLimit === null
-            ? displayedTotal + (state.scope==='inbox'?' Eingangselemente gefunden':' Dokumente gefunden')
-            : result.total + ' von ' + result.matchingTotal + ' passenden Dokumenten · letzte ' + result.total;
-        $('resultsPage').textContent = 'Seite ' + result.page + ' / ' + result.pages;
+            ? window.o8Translate?.(`workspace.${state.scope==='inbox'?'inboxFound':'documentsFound'}`,{count:displayedTotal})
+            : tr('latestResults',{count:result.total,total:result.matchingTotal});
+        $('resultsPage').textContent = tr('page',{page:result.page,pages:result.pages});
         $('previousResults').disabled = result.page <= 1; $('nextResults').disabled = result.page >= result.pages;
         const inboundRows=(state.page===1?inbound:[]).map(row=>({...row,_inbound:true})); state.rows=[...inboundRows,...result.rows];
-        const inboundHtml=inboundRows.map(item=>'<article class="doc-row inbound-row" data-inbound-row="'+item.id+'" data-drag-inbound="'+item.id+'"><label class="doc-check"><input class="form-check-input" type="checkbox" data-inbound-select="'+item.id+'" aria-label="'+esc(item.original_name)+' auswählen"></label><button class="doc-open" data-inbound="'+item.id+'"><span class="doc-title">'+esc(item.original_name)+'</span><span class="doc-second-line"><span class="doc-sender">'+esc(item.source_name)+' · '+esc(item.owner_name)+'</span></span><span class="doc-meta"><time datetime="'+esc(item.discovered_at)+'">'+esc(dateLabel(String(item.discovered_at).slice(0,10)))+'</time><span>E'+item.id+'</span><span class="tag">'+esc(({not_requested:'KI offen',queued:'KI wartet',running:'KI läuft',ready:'KI bereit',failed:'KI-Fehler'})[item.ai_status] || item.ai_status)+'</span></span></button></article>').join('');
-        const documentHtml=result.rows.map(doc => '<article class="doc-row" data-drag-document="' + doc.id + '"><label class="doc-check"><input class="form-check-input" type="checkbox" data-select="' + doc.id + '" aria-label="' + esc(doc.title) + ' auswählen"></label><button class="doc-open" data-document="' + doc.id + '"><span class="doc-title">' + esc(doc.title) + '</span><span class="doc-second-line"><span class="doc-sender">' + esc(doc.sender || 'Ohne Absender') + '</span>' + (doc.gross_amount !== null && doc.gross_amount !== undefined ? '<span class="doc-gross">' + esc(grossLabel(doc)) + '</span>' : '') + '</span><span class="doc-meta"><time datetime="' + esc(doc.document_date || '') + '">' + esc(dateLabel(doc.document_date)) + '</time><span>D' + doc.id + '</span><span class="doc-meta-count doc-folder-count" data-folder-ids="' + esc(JSON.stringify(doc.folder_ids || [])) + '" aria-describedby="docTagsTooltip" aria-label="' + Number(doc.folder_count || 0) + ' Ordner"><svg class="icon small-icon" aria-hidden="true"><use href="#i-link"/></svg> ' + Number(doc.folder_count || 0) + '</span>' + (doc.tag_names?.length ? '<span class="doc-meta-count doc-tag-count" data-tag-names="' + esc(JSON.stringify(doc.tag_names)) + '" aria-label="' + doc.tag_names.length + ' Tags" aria-describedby="docTagsTooltip"><svg class="icon small-icon" aria-hidden="true"><use href="#i-tag"/></svg> ' + doc.tag_names.length + '</span>' : '') + '</span></button></article>').join('');
-        $('documentList').innerHTML = inboundHtml+documentHtml || '<div class="empty-state">Keine Dokumente in diesem Suchbereich.</div>';
+        const inboundHtml=inboundRows.map(item=>'<article class="doc-row inbound-row" data-inbound-row="'+item.id+'" data-drag-inbound="'+item.id+'"><label class="doc-check"><input class="form-check-input" type="checkbox" data-inbound-select="'+item.id+'" aria-label="'+esc(tr('selectItem',{name:item.original_name}))+'"></label><button class="doc-open" data-inbound="'+item.id+'"><span class="doc-title">'+esc(item.original_name)+'</span><span class="doc-second-line"><span class="doc-sender">'+esc(item.source_name)+' · '+esc(item.owner_name)+'</span></span><span class="doc-meta"><time datetime="'+esc(item.discovered_at)+'">'+esc(dateLabel(String(item.discovered_at).slice(0,10)))+'</time><span>E'+item.id+'</span><span class="tag">'+esc(aiStatusLabel(item.ai_status))+'</span></span></button></article>').join('');
+        const documentHtml=result.rows.map(doc => '<article class="doc-row" data-drag-document="' + doc.id + '"><label class="doc-check"><input class="form-check-input" type="checkbox" data-select="' + doc.id + '" aria-label="' + esc(tr('selectItem',{name:doc.title})) + '"></label><button class="doc-open" data-document="' + doc.id + '"><span class="doc-title">' + esc(doc.title) + '</span><span class="doc-second-line"><span class="doc-sender">' + esc(doc.sender || tr('noSender')) + '</span>' + (doc.gross_amount !== null && doc.gross_amount !== undefined ? '<span class="doc-gross">' + esc(grossLabel(doc)) + '</span>' : '') + '</span><span class="doc-meta"><time datetime="' + esc(doc.document_date || '') + '">' + esc(dateLabel(doc.document_date)) + '</time><span>D' + doc.id + '</span><span class="doc-meta-count doc-folder-count" data-folder-ids="' + esc(JSON.stringify(doc.folder_ids || [])) + '" aria-describedby="docTagsTooltip" aria-label="' + esc(tr('folderCount',{count:Number(doc.folder_count || 0)})) + '"><svg class="icon small-icon" aria-hidden="true"><use href="#i-link"/></svg> ' + Number(doc.folder_count || 0) + '</span>' + (doc.tag_names?.length ? '<span class="doc-meta-count doc-tag-count" data-tag-names="' + esc(JSON.stringify(doc.tag_names)) + '" aria-label="' + doc.tag_names.length + ' Tags" aria-describedby="docTagsTooltip"><svg class="icon small-icon" aria-hidden="true"><use href="#i-tag"/></svg> ' + doc.tag_names.length + '</span>' : '') + '</span></button></article>').join('');
+        $('documentList').innerHTML = inboundHtml+documentHtml || '<div class="empty-state">'+tr('emptyResults')+'</div>';
         syncSelection();
         if (preferred && preferredInbound && inboundRows.some(x=>Number(x.id)===Number(preferred))) await selectInbound(preferred,true);
         else if (preferred && !preferredInbound && result.rows.some(x => Number(x.id) === Number(preferred))) await select(preferred, true);
@@ -176,7 +194,7 @@ async function search() {
 }
 async function select(id, force = false) {
     if (!force && !(await discard())) return;
-    clearDocument(); $('documentDetails').textContent = 'Dokument wird geladen …';
+    clearDocument(); $('documentDetails').textContent = tr('documentLoading');
     const sequence = ++state.documentSequence;
     try {
         const doc = await api('get', {id});
@@ -188,26 +206,26 @@ async function select(id, force = false) {
         const fileUrl = url('file', {id});
         if (['application/pdf','image/jpeg','image/png'].includes(doc.mime_type)) {
             const element = document.createElement(doc.mime_type === 'application/pdf' ? 'iframe' : 'img');
-            if (element.tagName === 'IFRAME') { element.title = 'PDF-Originalvorschau'; }
+            if (element.tagName === 'IFRAME') { element.title = window.o8TranslateSource?.('PDF-Originalvorschau') || 'PDF-Originalvorschau'; }
             else element.alt = doc.title;
             element.src = fileUrl; preview.append(element);
-        } else preview.textContent = 'Für diesen Dateityp ist keine integrierte Vorschau verfügbar.';
-        const hint = document.createElement('p'); hint.className = 'small'; hint.textContent = 'Falls die Vorschau nicht unterstützt wird, bitte Download verwenden.'; preview.append(hint);
+        } else preview.textContent = tr('previewUnsupported');
+        const hint = document.createElement('p'); hint.className = 'small'; hint.textContent = tr('previewHint'); preview.append(hint);
         $('downloadFile').href = url('file', {id,download:1}); $('downloadFile').hidden = false;
         details(); folders();
     } catch (problem) { error(problem); }
 }
 async function selectInbound(id,force=false) {
-    if (!force && !(await discard())) return; clearDocument(); $('documentDetails').textContent='Eingangselement wird geladen …'; const sequence=++state.documentSequence;
+    if (!force && !(await discard())) return; clearDocument(); $('documentDetails').textContent=tr('inboundLoading'); const sequence=++state.documentSequence;
     try {
         const item=await api('inboundGet',{id}); if (sequence!==state.documentSequence) return; item._inbound=true; state.document=item; state.dirty=false; $('documentId').textContent='E'+item.id;
         for (const row of $('documentList').querySelectorAll('article')) row.classList.toggle('is-active',Number(row.dataset.inboundRow)===Number(id));
         const preview=$('documentPreview'); preview.replaceChildren(); const fileUrl=url('inboundFile',{id});
-        if (['application/pdf','image/jpeg','image/png'].includes(item.mime_type)) { const element=document.createElement(item.mime_type==='application/pdf'?'iframe':'img'); if (element.tagName==='IFRAME') element.title='Eingangsdatei-Vorschau'; else element.alt=item.original_name; element.src=fileUrl; preview.append(element); }
-        else preview.textContent='Für diesen Dateityp ist keine integrierte Vorschau verfügbar.';
+        if (['application/pdf','image/jpeg','image/png'].includes(item.mime_type)) { const element=document.createElement(item.mime_type==='application/pdf'?'iframe':'img'); if (element.tagName==='IFRAME') element.title=window.o8TranslateSource?.('Eingangsdatei-Vorschau') || 'Eingangsdatei-Vorschau'; else element.alt=item.original_name; element.src=fileUrl; preview.append(element); }
+        else preview.textContent=tr('previewUnsupported');
         $('downloadFile').href=url('inboundFile',{id,download:1}); $('downloadFile').hidden=false;
         let json=item.json_text; if (json) try { json=JSON.stringify(JSON.parse(json),null,2); } catch { /* Ungültiges JSON bleibt als Rohtext sichtbar. */ }
-        const clipped=(value,limit=100000)=>value&&value.length>limit?value.slice(0,limit)+'\n… Vorschau gekürzt …':value;
+        const clipped=(value,limit=100000)=>value&&value.length>limit?value.slice(0,limit)+'\n… '+tr('previewClipped')+' …':value;
         const history=(item.acceptance_status==='blocked'?'<div class="alert alert-warning small" role="status"><strong>Automatische Übernahme: Prüfung nötig</strong><br>'+esc(item.acceptance_message)+'</div>':'')+(Array.isArray(item.ai_history)&&item.ai_history.length?'<section class="inbound-ai-history o8-info-group o8-info-group--soft"><span class="detail-label">KI-VERLAUF</span><ol>'+item.ai_history.map(run=>'<li><strong>'+esc(aiStatusLabel(run.status))+'</strong><span>'+esc(dateLabel(String(run.created_at).slice(0,10)))+' · '+esc(run.requested_by_name)+(run.error_code?' · '+esc(aiErrorLabel(run.error_code)):'')+'</span></li>').join('')+'</ol></section>':'<section class="o8-info-group o8-info-group--soft"><span class="detail-label">KI-VERLAUF</span><p class="live-detail-empty">Noch kein KI-Lauf vorhanden.</p></section>');
         const aiTags=json!==null?'<section class="live-detail-tags o8-info-group o8-info-group--soft"><span class="detail-label">KI-TAGVORSCHLÄGE</span><div class="tag-list">'+(item.ai_tag_matches.length?item.ai_tag_matches.map(tag=>'<span class="tag">'+esc(tag.name)+'</span>').join(''):'<span class="live-detail-empty">Keine vorhandenen Tags erkannt</span>')+'</div>'+(item.ai_tag_ignored.length?'<p class="small text-body-secondary mt-1 mb-0">Ignoriert (nicht im aktiven Katalog): '+esc(item.ai_tag_ignored.join(', '))+'</p>':'')+'</section>':'';
         $('documentDetails').innerHTML='<section class="live-detail-intro"><div class="live-detail-status"><span class="tag">'+esc(item.source_kind.toUpperCase())+'</span><span class="tag">'+esc(({pending:'Bereit',duplicate:'Duplikat',invalid:'Ungültig'})[item.inventory_status]||item.inventory_status)+'</span><span class="tag">'+esc(aiStatusLabel(item.ai_status))+'</span></div><h2>'+esc(item.original_name)+'</h2><p>'+esc(item.source_name)+'</p></section><div class="live-detail-facts"><div><span class="detail-label">BESITZER</span><span class="detail-value">'+esc(item.owner_name)+'</span></div><div><span class="detail-label">GEFUNDEN</span><span class="detail-value">'+esc(dateLabel(String(item.discovered_at).slice(0,10)))+'</span></div><div><span class="detail-label">DATEITYP</span><span class="detail-value">'+esc(item.mime_type)+'</span></div><div><span class="detail-label">GRÖSSE</span><span class="detail-value">'+Math.ceil(Number(item.size_bytes)/1024)+' KiB</span></div></div>'+(json!==null?'<section class="inbound-sidecar"><span class="detail-label">KI-/JSON-DATEN</span><pre>'+esc(clipped(json))+'</pre></section>':'<p class="live-detail-empty">Keine JSON-Daten vorhanden.</p>')+aiTags+(item.text_content!==null?'<section class="inbound-sidecar"><span class="detail-label">OCR-/TEXTDATEN</span><pre>'+esc(clipped(item.text_content))+'</pre></section>':'')+history+'<div class="live-detail-actions"><button class="btn btn-primary" type="button" id="runInboundAi" '+(!state.meta.aiReady?'disabled':'')+'>'+(item.active_ai_job_id?'KI-Verarbeitung fortsetzen …':item.ai_status==='ready'||item.ai_status==='failed'?'KI erneut ausführen …':'Mit KI analysieren …')+'</button><button class="btn btn-outline-danger" type="button" id="deleteInboundItem">Aus Eingang löschen …</button></div>';
@@ -279,6 +297,13 @@ async function link(folder, remove = false, id = state.document?.id, confirmed =
     } catch (problem) { error(problem); }
 }
 $('folderNavigationDesktop').addEventListener('click',async event => {
+    const toggle=event.target.closest('[data-folder-toggle]');
+    if (toggle) {
+        event.preventDefault(); event.stopPropagation();
+        const id=String(toggle.dataset.folderToggle);
+        if (collapsedFolderIds.has(id)) collapsedFolderIds.delete(id); else collapsedFolderIds.add(id);
+        folders(); void savePreferences(); return;
+    }
     const button = event.target.closest('[data-scope]');
     if (button && await discard()) {
         state.dirty = false; state.localScope = button.dataset.scope; state.page = 1;
@@ -440,6 +465,31 @@ $('bulkRestoreSelected').addEventListener('click',() => applyBulk('restore'));
 const folderNav = $('folderNavigationDesktop');
 const clearDropTarget = () => { folderNav.querySelectorAll('.drop-target').forEach(item => item.classList.remove('drop-target')); document.body.classList.remove('dragging-documents'); };
 let pointerDrag=null;
+let dragCollapsedSnapshot=null, dragExpandedFolder=null;
+const folderTreeIds = folderId => {
+    const descendants=new Set(), visit=parent=>state.meta.folders.filter(folder=>String(folder.parent_id)===String(parent)).forEach(folder=>{const id=String(folder.id);if(descendants.has(id))return;descendants.add(id);visit(id);});
+    visit(folderId); return descendants;
+};
+const restoreDragFolderExpansion = () => {
+    if (!dragCollapsedSnapshot) return;
+    collapsedFolderIds=new Set(dragCollapsedSnapshot); dragCollapsedSnapshot=null; dragExpandedFolder=null; folders();
+};
+const syncDragFolderExpansion = folder => {
+    const id=folder?String(folder.dataset.dropFolder):null;
+    if (!id || !state.meta.folders.some(item=>String(item.parent_id)===id)) {
+        if (dragCollapsedSnapshot) restoreDragFolderExpansion();
+        return id?folderNav.querySelector(`[data-drop-folder="${id}"]`):null;
+    }
+    if (dragExpandedFolder===id) return folderNav.querySelector(`[data-drop-folder="${id}"]`);
+    if (!dragCollapsedSnapshot) dragCollapsedSnapshot=new Set(collapsedFolderIds);
+    const expanded=new Set(dragCollapsedSnapshot);
+    expanded.delete(id);
+    for (const descendant of folderTreeIds(id)) expanded.delete(descendant);
+    const changed=expanded.size!==collapsedFolderIds.size || [...expanded].some(value=>!collapsedFolderIds.has(value));
+    collapsedFolderIds=expanded; dragExpandedFolder=id;
+    if (changed) folders();
+    return folderNav.querySelector(`[data-drop-folder="${id}"]`);
+};
 const folderAt = (x,y) => {
     for (const candidate of folderNav.querySelectorAll('[data-drop-folder]')) {
         const rect=candidate.getBoundingClientRect();
@@ -448,6 +498,7 @@ const folderAt = (x,y) => {
     return null;
 };
 const highlightDropTarget = folder => {
+    folder=syncDragFolderExpansion(folder);
     document.body.classList.add('dragging-documents');
     folderNav.querySelectorAll('.drop-target').forEach(item => item.classList.toggle('drop-target',item===folder));
     const preview=pointerDrag?.preview;
@@ -472,23 +523,25 @@ const positionDragPreview = (preview,x,y) => {
 };
 const releasePointerDrag = drag => {
     try { drag.source.releasePointerCapture(drag.pointerId); } catch { /* Bereits freigegeben. */ }
-    drag.source.classList.remove('is-dragging'); drag.preview?.remove(); clearDropTarget();
+    drag.source.classList.remove('is-dragging'); drag.preview?.remove(); restoreDragFolderExpansion(); clearDropTarget();
 };
-async function handleFolderDrop(ids,folder,kind='document') {
+async function handleFolderDrop(ids,targetFolderId,kind='document') {
     ids=[...new Set(ids.map(Number))].filter(id => Number.isInteger(id) && id>0);
-    if (!folder || !ids.length) return;
+    targetFolderId=Number(targetFolderId);
+    const targetFolder=state.meta.folders.find(item=>Number(item.id)===targetFolderId);
+    if (!targetFolder || !ids.length) return;
     if (writing || state.dirty) { error(new Error('Ungespeicherte Änderungen zuerst speichern oder verwerfen.')); return; }
     if (kind==='inbound') {
-        try { await acceptanceDialog.open(ids[0],Number(folder.dataset.dropFolder)); }
+        try { await acceptanceDialog.open(ids[0],targetFolderId); }
         catch (problem) { error(problem); }
         return;
     }
-    const folderName=folder.querySelector('span')?.textContent || 'Ordner';
+    const folderName=targetFolder.name || 'Ordner';
     const sourceFolderId=/^\d+$/.test(String(state.scope)) ? Number(state.scope) : null;
     const sourceFolder=sourceFolderId ? state.meta.folders.find(item => Number(item.id)===sourceFolderId) : null;
     const count=ids.length===1 ? 'Dokument' : `${ids.length} ausgewählte Dokumente`;
     let mode='copy';
-    if (sourceFolder && sourceFolderId!==Number(folder.dataset.dropFolder)) {
+    if (sourceFolder && sourceFolderId!==targetFolderId) {
         mode=await choiceDialog('Dokumente ablegen',`${count} nach „${folderName}“ kopieren oder aus „${sourceFolder.name}“ dorthin verschieben? Beim Verschieben bleiben weitere Ordnerverknüpfungen erhalten.`,'Kopieren','copy','Verschieben','move');
     } else if (state.scope==='inbox') {
         mode=(await confirmDialog('Aus Eingang verschieben',`${count} aus dem Eingang in „${folderName}“ verschieben? Danach erscheinen die Dokumente unter „Alle Dokumente“.`,'Verschieben')) ? 'copy' : false;
@@ -499,7 +552,7 @@ async function handleFolderDrop(ids,folder,kind='document') {
     const revisions=new Map(state.rows.filter(row=>!row._inbound).map(row => [Number(row.id),Number(row.revision)]));
     if (ids.some(id => !revisions.has(id))) { error(new Error('Auswahl ist nicht mehr aktuell. Bitte Suche neu laden.')); return; }
     try {
-        const result=await api('bulk',{documents:JSON.stringify(ids.map(id => ({id,revision:revisions.get(id)}))),folderAction:mode==='move'?'move':'add',folderId:folder.dataset.dropFolder,sourceFolderId:mode==='move'?String(sourceFolderId):'',tagAction:'keep',tags:'[]',ownerId:'',status:'keep'},true);
+        const result=await api('bulk',{documents:JSON.stringify(ids.map(id => ({id,revision:revisions.get(id)}))),folderAction:mode==='move'?'move':'add',folderId:targetFolderId,sourceFolderId:mode==='move'?String(sourceFolderId):'',tagAction:'keep',tags:'[]',ownerId:'',status:'keep'},true);
         state.selected.clear(); state.dirty=false; await metadata(); await search(); notice(`${result.count} Dokument(e) verlinkt.`);
     } catch (problem) { error(problem); }
 }
@@ -522,11 +575,11 @@ document.addEventListener('pointermove',event => {
 },{passive:false});
 document.addEventListener('pointerup',event => {
     if (!pointerDrag || pointerDrag.pointerId!==event.pointerId) return;
-    const drag=pointerDrag; const folder=drag.active?folderAt(event.clientX,event.clientY):null;
+    const drag=pointerDrag; const folder=drag.active?folderAt(event.clientX,event.clientY):null; const targetFolderId=folder?Number(folder.dataset.dropFolder):null;
     pointerDrag=null; releasePointerDrag(drag);
     if (!drag.active) return;
     event.preventDefault(); suppressDocumentClick=true; setTimeout(() => { suppressDocumentClick=false; },0);
-    if (folder) void handleFolderDrop(drag.ids,folder,drag.kind);
+    if (targetFolderId) void handleFolderDrop(drag.ids,targetFolderId,drag.kind);
 });
 document.addEventListener('pointercancel',event => {
     if (!pointerDrag || pointerDrag.pointerId!==event.pointerId) return;

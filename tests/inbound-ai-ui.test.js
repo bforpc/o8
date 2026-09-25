@@ -26,7 +26,7 @@ test('inbound JSON is collapsed and folder drop keeps the acceptance review', ()
     assert.match(script,/document\.createElement\('details'\)/);
     assert.match(script,/summary\.textContent='KI-\/JSON-Daten anzeigen'/);
     assert.match(script,/data-drag-inbound/);
-    assert.match(script,/acceptanceDialog\.open\(ids\[0\],Number\(folder\.dataset\.dropFolder\)\)/);
+    assert.match(script,/acceptanceDialog\.open\(ids\[0\],targetFolderId\)/);
     assert.match(script,/Aus Eingang verschieben/);
     assert.match(acceptance,/async open\(id, targetFolderId=null\)/);
     assert.match(acceptance,/if \(folder\) folder\.checked=true/);

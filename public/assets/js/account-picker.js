@@ -1,10 +1,13 @@
 // Suchbare Einzelauswahl; Texteingabe legt kein Konto an.
+const fallback = {accountSearchPlaceholder:'Kontonummer oder Bezeichnung suchen …',accountNotConfigured:'{value} · nicht im Setup',accountRemove:'Kontozuordnung entfernen',accountsNeedSetup:'Konten zuerst in Einstellungen → Buchhaltung hinterlegen.',noMatchingAccounts:'Keine passenden Konten.',firstAccountsHint:'Erste 60 Treffer. Suche bitte eingrenzen.'};
+const t = (key, values={}) => (globalThis.o8Translate ? globalThis.o8Translate(`common.${key}`, values) : (fallback[key]||'')).replace(/\{([a-zA-Z][a-zA-Z0-9_]*)\}/g,(_,name)=>Object.hasOwn(values,name)?String(values[name]):'');
+const source = value => globalThis.o8TranslateSource ? globalThis.o8TranslateSource(value) : value;
 export class AccountPicker {
     constructor(container, accounts, value, label, emptyLabel, onChange) {
         this.container = container; this.accounts = accounts; this.value = value || ''; this.emptyLabel = emptyLabel; this.onChange = onChange; this.active = -1;
-        container.innerHTML = '<div class="account-selection"></div><input class="form-control form-control-sm" type="search" role="combobox" aria-autocomplete="list" aria-expanded="false" autocomplete="off" placeholder="Kontonummer oder Bezeichnung suchen …"><div class="tag-picker-options" role="listbox" hidden></div>';
+        container.innerHTML = '<div class="account-selection"></div><input class="form-control form-control-sm" type="search" role="combobox" aria-autocomplete="list" aria-expanded="false" autocomplete="off"><div class="tag-picker-options" role="listbox" hidden></div>';
         this.input = container.querySelector('input'); this.list = container.querySelector('[role="listbox"]');
-        this.input.setAttribute('aria-label', label); this.list.setAttribute('aria-label', label);
+        this.input.placeholder=t('accountSearchPlaceholder'); this.input.setAttribute('aria-label',source(label)); this.list.setAttribute('aria-label',source(label));
         this.list.id = `${container.id}-options`; this.input.setAttribute('aria-controls', this.list.id);
         this.input.addEventListener('focus', () => this.open());
         this.input.addEventListener('input', () => { this.active = -1; this.open(); });
@@ -21,10 +24,10 @@ export class AccountPicker {
     selection() {
         const area = this.container.querySelector('.account-selection'); area.replaceChildren();
         const account = this.accounts.find(row => String(row.value ?? row.code) === String(this.value));
-        const label = document.createElement('span'); label.textContent = this.value ? (account ? `${account.code} · ${account.name}` : `${this.value} · nicht im Setup`) : this.emptyLabel;
+        const label = document.createElement('span'); label.textContent = this.value ? (account ? `${account.code} · ${account.name}` : t('accountNotConfigured',{value:this.value})) : source(this.emptyLabel);
         area.append(label);
         if (this.value) {
-            const clear = document.createElement('button'); clear.type = 'button'; clear.className = 'btn btn-sm'; clear.textContent = '×'; clear.setAttribute('aria-label', 'Kontozuordnung entfernen');
+            const clear = document.createElement('button'); clear.type = 'button'; clear.className = 'btn btn-sm'; clear.textContent = '×'; clear.setAttribute('aria-label', t('accountRemove'));
             clear.addEventListener('click', () => this.choose('')); area.append(clear);
         }
     }
@@ -41,7 +44,7 @@ export class AccountPicker {
         });
         if (!all.length || all.length > 60 || !this.accounts.length) {
             const hint = document.createElement('div'); hint.className = 'tag-picker-empty';
-            hint.textContent = !this.accounts.length ? 'Konten zuerst in Einstellungen → Buchhaltung hinterlegen.' : !all.length ? 'Keine passenden Konten.' : 'Erste 60 Treffer. Suche bitte eingrenzen.';
+            hint.textContent = !this.accounts.length ? t('accountsNeedSetup') : !all.length ? t('noMatchingAccounts') : t('firstAccountsHint');
             this.list.append(hint);
         }
         this.list.hidden = false; this.input.setAttribute('aria-expanded', 'true'); this.mark();

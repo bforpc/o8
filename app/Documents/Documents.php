@@ -797,6 +797,20 @@ final class Documents
         if ($input!==null) {
             $widths=$input['widths']??[]; $mode=$input['mode']??'system';
             if (!is_array($widths) || count($widths)!==4 || count(array_filter($widths,fn($n)=>is_numeric($n) && $n>=8 && $n<=65))!==4 || abs(array_sum($widths)-100)>.1 || !in_array($mode,['system','light','dark'],true)) throw new \RuntimeException('Ungültige Anzeigeeinstellungen.');
+            $collapsedInput=$input['collapsedFolders']??[];
+            if (!is_array($collapsedInput) || count($collapsedInput)>10000) throw new \RuntimeException('Ungültige Ordneransicht.');
+            $collapsedFolders=[];
+            foreach ($collapsedInput as $folderId) {
+                if (!(is_int($folderId) || (is_string($folderId) && ctype_digit($folderId))) || (int)$folderId<1) throw new \RuntimeException('Ungültige Ordneransicht.');
+                $collapsedFolders[]=(int)$folderId;
+            }
+            $collapsedFolders=array_values(array_unique($collapsedFolders));
+            if ($collapsedFolders) {
+                $placeholders=implode(',',array_fill(0,count($collapsedFolders),'?'));
+                $check=$this->db->prepare("SELECT COUNT(*) FROM folders WHERE tenant_id=? AND id IN ($placeholders)");
+                $check->execute([$actor->tenantId(),...$collapsedFolders]);
+                if ((int)$check->fetchColumn()!==count($collapsedFolders)) throw new \RuntimeException('Ordneransicht enthält einen ungültigen Ordner.');
+            }
             $theme=$input['theme']??null;
             if ($theme!==null) {
                 $validModes=['light','dark']; $validFamilies=['system','sans','serif','mono']; $validSizes=[100,110,125,150,175,200];
@@ -804,13 +818,13 @@ final class Documents
                 foreach ($validModes as $themeMode) foreach (['accent','background','surface'] as $color) if (!is_string($theme[$themeMode][$color]??null) || !preg_match('/^#[0-9a-f]{6}$/i',$theme[$themeMode][$color])) throw new \RuntimeException('Ungültige Darstellungsfarbe.');
                 $theme['fontSize']=(int)$theme['fontSize'];
             }
-            $this->transaction($actor,function() use($actor,$widths,$mode,$theme):void {
-                $value=['widths'=>$widths,'mode'=>$mode]; if ($theme!==null) $value['theme']=$theme;
+            $this->transaction($actor,function() use($actor,$widths,$mode,$theme,$collapsedFolders):void {
+                $value=['widths'=>$widths,'mode'=>$mode,'collapsedFolders'=>$collapsedFolders]; if ($theme!==null) $value['theme']=$theme;
                 $s=$this->db->prepare("INSERT INTO user_settings (tenant_id,user_id,setting_key,value_json) VALUES (?,?,'workspace',?) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json)"); $s->execute([$actor->tenantId(),$actor->id(),json_encode($value,JSON_THROW_ON_ERROR)]);
             });
         }
         $s=$this->db->prepare("SELECT value_json FROM user_settings WHERE tenant_id=? AND user_id=? AND setting_key='workspace'"); $s->execute([$actor->tenantId(),$actor->id()]);
-        $result=json_decode($s->fetchColumn()?:'{}',true)?:[]; $result['widths']=$result['widths']??[18,27,29,26]; $result['mode']=$result['mode']??'system';
+        $result=json_decode($s->fetchColumn()?:'{}',true)?:[]; $result['widths']=$result['widths']??[18,27,29,26]; $result['mode']=$result['mode']??'system'; $result['collapsedFolders']=is_array($result['collapsedFolders']??null)?array_values(array_filter($result['collapsedFolders'],static fn($id):bool=>is_int($id)&&$id>0)):[];
         $result['theme']=$result['theme']??['mode'=>$result['mode'],'density'=>'comfortable','fontFamily'=>'system','fontSize'=>125,'light'=>['accent'=>'#326d62','background'=>'#f3f4f0','surface'=>'#ffffff'],'dark'=>['accent'=>'#8fc6b2','background'=>'#141b1a','surface'=>'#1d2725']];
         return $result;
     }

@@ -5,7 +5,8 @@ import { money } from './currency.js';
 import { DocumentReviewPreview } from './document-review-preview.js';
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const tagsMarkup=tags=>tags.length?tags.map(tag=>`<span class="tag">${esc(tag)}</span>`).join(' '):'<span class="small text-body-secondary">Keine</span>';
+const t=(key,values={})=>window.o8Translate?.(`client.${key}`,values)||'';
+const tagsMarkup=tags=>tags.length?tags.map(tag=>`<span class="tag">${esc(tag)}</span>`).join(' '):`<span class="small text-body-secondary">${esc(t('none'))}</span>`;
 
 export function folderTreeMarkup(folders) {
     const ids=new Set(folders.map(f=>String(f.id))), seen=new Set();
@@ -14,7 +15,7 @@ export function folderTreeMarkup(folders) {
         const children=branch(f.id);
         return `<li><label><input class="form-check-input" type="checkbox" name="folders" value="${Number(f.id)}"><span>${esc(f.name)}</span></label>${children?`<ul>${children}</ul>`:''}</li>`;
     }).join('');
-    return `<ul class="accept-folder-tree">${branch(null)||'<li class="small text-body-secondary">Keine Ordner vorhanden.</li>'}</ul>`;
+    return `<ul class="accept-folder-tree">${branch(null)||`<li class="small text-body-secondary">${esc(t('noFolders'))}</li>`}</ul>`;
 }
 
 /** One acceptance draft; nothing is persisted before the final acceptance. */
@@ -32,8 +33,8 @@ export class InboundAcceptanceDialog {
     async open(id, targetFolderId=null) {
         if (this.saving) return;
         this.preview.clear();
-        this.modal.querySelector('#inboundAcceptTitle').textContent=targetFolderId===null?'In das DMS übernehmen':'Aus Eingang in Ordner verschieben';
-        this.form.querySelector('.modal-footer [type="submit"]').textContent=targetFolderId===null?'Übernehmen':'Verschieben';
+        this.modal.querySelector('#inboundAcceptTitle').textContent=targetFolderId===null?t('acceptToDms'):t('moveFromInboxToFolder');
+        this.form.querySelector('.modal-footer [type="submit"]').textContent=targetFolderId===null?t('accept'):t('moveAction');
         this.proposal=await this.api('inboundProposal',{id});
         const p=this.proposal, meta=this.metadata();
         this.invoice=p.invoiceComplete?structuredClone(p.invoice):null;
@@ -41,43 +42,43 @@ export class InboundAcceptanceDialog {
         this.invoiceWarning=p.invoiceWarning||'';
         const field=(name,label,type='text')=>`<label class="col-sm-6">${label}<input class="form-control" name="${name}" type="${type}" value="${esc(p[name])}" ${name==='title'?'required':''} maxlength="255"></label>`;
         this.form.querySelector('.modal-body').innerHTML=`
-            <p class="small text-body-secondary">KI-Vorschläge prüfen und bei Bedarf korrigieren. Erst „Übernehmen“ speichert das Dokument im DMS.</p>
-            <section class="o8-info-group o8-info-group--head"><h3 class="h6">Dokument</h3><div class="row g-2">${field('title','Titel')}${field('sender','Absender')}${field('date','Dokumentdatum','date')}${field('reference','Referenz')}
-                <label class="col-sm-6">Dokumentart<select class="form-select" name="documentType">${Object.entries({document:'Dokument',invoice:'Rechnung',credit_note:'Gutschrift',contract:'Vertrag',certificate:'Bescheinigung'}).map(([value,label])=>`<option value="${value}" ${p.documentType===value?'selected':''}>${label}</option>`).join('')}</select></label>
-                ${meta.users.length?`<label class="col-sm-6">Besitzer<select class="form-select" name="ownerId">${meta.users.map(u=>`<option value="${u.id}" ${Number(u.id)===p.ownerId?'selected':''}>${esc(u.display_name)}</option>`).join('')}</select></label>`:''}
-                <label class="col-12">Notiz<textarea class="form-control" name="memo" maxlength="10000" rows="2">${esc(p.memo)}</textarea></label>
+            <p class="small text-body-secondary">${esc(t('reviewAiSuggestions'))}</p>
+            <section class="o8-info-group o8-info-group--head"><h3 class="h6">${esc(t('document'))}</h3><div class="row g-2">${field('title',t('title'))}${field('sender',t('sender'))}${field('date',t('documentDate'),'date')}${field('reference',t('reference'))}
+                <label class="col-sm-6">${esc(t('documentType'))}<select class="form-select" name="documentType">${Object.entries({document:t('typeDocument'),invoice:t('typeInvoice'),credit_note:t('typeCreditNote'),contract:t('typeContract'),certificate:t('typeCertificate')}).map(([value,label])=>`<option value="${value}" ${p.documentType===value?'selected':''}>${esc(label)}</option>`).join('')}</select></label>
+                ${meta.users.length?`<label class="col-sm-6">${esc(t('owner'))}<select class="form-select" name="ownerId">${meta.users.map(u=>`<option value="${u.id}" ${Number(u.id)===p.ownerId?'selected':''}>${esc(u.display_name)}</option>`).join('')}</select></label>`:''}
+                <label class="col-12">${esc(t('memo'))}<textarea class="form-control" name="memo" maxlength="10000" rows="2">${esc(p.memo)}</textarea></label>
             </div></section>
-            <section class="o8-info-group o8-info-group--soft"><h3 class="h6">Tags</h3>
-                <details class="accept-tag-info"><summary>KI-Tagdetails anzeigen</summary><div class="accept-tag-comparison"><div><span class="detail-label">KI-Tags (Originalvorschlag)</span><div id="acceptAiTags" class="tag-list">${tagsMarkup(p.aiTags||[])}</div></div>
-                <div><span class="detail-label">Im Katalog erkannt</span><div class="tag-list">${tagsMarkup(p.matchedTags.map(t=>t.name))}</div></div>
-                <div><span class="detail-label">Ignoriert – nicht im aktiven Katalog</span><div class="tag-list">${tagsMarkup(p.ignoredTags)}</div></div></div></details>
+            <section class="o8-info-group o8-info-group--soft"><h3 class="h6">${esc(window.o8Translate?.('search.tags')||'')}</h3>
+                <details class="accept-tag-info"><summary>${esc(t('aiTagDetails'))}</summary><div class="accept-tag-comparison"><div><span class="detail-label">${esc(t('aiTagsOriginal'))}</span><div id="acceptAiTags" class="tag-list">${tagsMarkup(p.aiTags||[])}</div></div>
+                <div><span class="detail-label">${esc(t('catalogMatches'))}</span><div class="tag-list">${tagsMarkup(p.matchedTags.map(t=>t.name))}</div></div>
+                <div><span class="detail-label">${esc(t('ignoredNotInCatalog'))}</span><div class="tag-list">${tagsMarkup(p.ignoredTags)}</div></div></div></details>
                 <div id="acceptTagPicker"></div>
             </section>
-            <section class="o8-info-group"><h3 class="h6" id="acceptFoldersTitle">Zielordner (optional)</h3><div class="accept-folder-picker" role="group" aria-labelledby="acceptFoldersTitle">${folderTreeMarkup(meta.folders)}</div>
-                <p class="small text-body-secondary">Ohne Auswahl erscheint das Dokument nur unter „Alle Dokumente“. Jede Markierung verknüpft genau diesen Ordner.</p></section>
-            <section class="o8-info-group o8-info-group--strong"><h3 class="h6">Buchungsdaten</h3><p class="small">KI-Summen: Netto ${esc(p.amounts.netto??'–')} · Steuer ${esc(p.amounts.mwst??'–')} · Brutto ${esc(p.amounts.brutto??'–')} ${esc(p.amounts.waehrung??'')}</p>
-                <p class="small text-body-secondary">Vorhandene KI-Beträge werden übernommen, auch wenn einzelne Buchungsangaben noch fehlen. Fehlende Werte bleiben offen und können später ergänzt werden.</p>
-                <p id="acceptInvoiceSummary" aria-live="polite"></p><button type="button" class="btn btn-surface btn-sm" data-accept-invoice>Buchungsdaten prüfen / erfassen …</button>
-                <button type="button" class="btn btn-surface btn-sm" data-remove-invoice hidden>Ohne Buchungsdaten übernehmen</button>
+            <section class="o8-info-group"><h3 class="h6" id="acceptFoldersTitle">${esc(t('targetFolderSelection'))}</h3><div class="accept-folder-picker" role="group" aria-labelledby="acceptFoldersTitle">${folderTreeMarkup(meta.folders)}</div>
+                <p class="small text-body-secondary">${esc(t('onlyAllDocuments'))}</p></section>
+            <section class="o8-info-group o8-info-group--strong"><h3 class="h6">${esc(t('bookingData'))}</h3><p class="small">${esc(t('aiAmounts',{net:p.amounts.netto??'–',tax:p.amounts.mwst??'–',gross:p.amounts.brutto??'–',currency:p.amounts.waehrung??''}))}</p>
+                <p class="small text-body-secondary">${esc(t('aiAmountsPartialInfo'))}</p>
+                <p id="acceptInvoiceSummary" aria-live="polite"></p><button type="button" class="btn btn-surface btn-sm" data-accept-invoice>${esc(t('reviewBookingData'))}</button>
+                <button type="button" class="btn btn-surface btn-sm" data-remove-invoice hidden>${esc(t('acceptWithoutBooking'))}</button>
             </section><p class="text-warning small mt-3">${esc(p.warning)}</p><div id="acceptError" class="text-danger mt-2" role="alert"></div>`;
         if (targetFolderId!==null) {
             const folder=this.form.querySelector(`[name="folders"][value="${Number(targetFolderId)}"]`);
             if (folder) folder.checked=true;
         }
-        this.picker=new TagPicker(document.getElementById('acceptTagPicker'),meta.tags.map(t=>t.name),p.matchedTags.map(t=>t.name),()=>{},'Tags suchen und auswählen',true);
+        this.picker=new TagPicker(document.getElementById('acceptTagPicker'),meta.tags.map(t=>t.name),p.matchedTags.map(t=>t.name),()=>{},t('chooseTags'),true);
         this.preview.mount(); this.preview.show({id:p.id,inbound:true});
         this.summary(); bootstrap.Modal.getOrCreateInstance(this.modal).show();
     }
     summary() {
         const node=document.getElementById('acceptInvoiceSummary');
-        node.textContent='Keine Buchungsdaten zur Übernahme ausgewählt.';
+        node.textContent=t('noBookingSelected');
         if(this.invoice) {
-            try { node.textContent=`Automatisch zur Übernahme: ${this.invoice.number?this.invoice.number+' · ':''}${money(invoiceTotals(this.invoice).grossCents,this.invoice.currency)} brutto`; }
-            catch { node.textContent='KI-Buchungsdaten zur Übernahme vorgemerkt; bitte fehlende Angaben ergänzen.'; }
+            try { node.textContent=t('invoiceReady',{number:this.invoice.number?this.invoice.number+' · ':'',amount:money(invoiceTotals(this.invoice).grossCents,this.invoice.currency)}); }
+            catch { node.textContent=t('invoiceProposalReady'); }
             if(this.proposal.invoiceCalculations?.length)node.textContent+=' '+this.proposal.invoiceCalculations.join(' ');
         } else if(this.partialInvoice) {
             const x=this.partialInvoice;
-            node.textContent=`Unvollständig zur Übernahme: Netto ${x.net??'offen'} · Steuer ${x.tax??'offen'} · Brutto ${x.gross??'offen'} ${x.currency}.`;
+            node.textContent=t('invoicePartialReady',{net:x.net??t('invoiceInOpen'),tax:x.tax??t('invoiceInOpen'),gross:x.gross??t('invoiceInOpen'),currency:x.currency});
             if(this.invoiceWarning)node.textContent+=' '+this.invoiceWarning;
         }
         this.form.querySelector('[data-remove-invoice]').hidden=!this.invoice&&!this.partialInvoice;

@@ -58,8 +58,13 @@
 .foundation-context { min-width: 210px; }
 .header-tools .btn { white-space: nowrap; }
 .folder-nav-row { display: flex; }
+.folder-nav-row { padding-left: calc(var(--folder-depth, 0) * .9rem); }
 .folder-nav-row > .folder-nav-item { flex: 1; min-width: 0; }
-.folder-nav-row > .folder-nav-item { padding-left: calc(.75rem + var(--folder-depth, 0) * 1.1rem); }
+.folder-nav-row > .folder-nav-item { padding-left: .35rem; }
+.folder-toggle, .folder-toggle-placeholder { flex: none; width: 1.2rem; min-width: 1.2rem; align-self: stretch; display: inline-flex; align-items: center; justify-content: center; }
+.folder-toggle { padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--o8-muted); font: inherit; font-size: 1rem; line-height: 1; cursor: pointer; }
+.folder-toggle:hover, .folder-toggle:focus-visible { color: var(--o8-text); background: var(--o8-tint); outline: 2px solid var(--o8-accent); outline-offset: -2px; }
+.folder-nav-row[hidden] { display: none !important; }
 .folder-navigation .folder-nav-item { padding-top: 7px; padding-bottom: 7px; gap: 8px; }
 .folder-nav-row .folder-manage { flex: none; align-self: center; }
 .folder-nav-row .count { flex: none !important; margin-left: auto; font-variant-numeric: tabular-nums; }

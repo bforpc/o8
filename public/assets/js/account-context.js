@@ -1,4 +1,5 @@
 import { confirmDialog } from './dialog.js';
+const t=(key,values={})=>window.o8Translate?.(key,values)||'';
 
 let dirty = false;
 document.addEventListener('input', event => {
@@ -14,8 +15,8 @@ document.addEventListener('submit', async event => {
         if (confirmation.value!=='yes') {
             event.preventDefault();
             const count=Number(form.dataset.tagCount), name=form.dataset.tagName;
-            const message=count===0?`Tag „${name}“ endgültig löschen? Es ist keinem Dokument zugeordnet.`:`Tag „${name}“ ist ${count} Dokument${count===1?'':'en'} zugeordnet. Beim Löschen wird dieses Tag von allen ${count} Dokument${count===1?'':'en'} entfernt. Fortfahren?`;
-            if (await confirmDialog('Tag endgültig löschen?',message,'Tag löschen',true)) {
+            const message=count===0?t('dialogs.deleteTagEmpty',{name}):t('dialogs.deleteTagUsed',{name,count});
+            if (await confirmDialog(t('dialogs.deleteTagTitle'),message,t('dialogs.deleteTagAction'),true)) {
                 confirmation.value='yes'; dirty=false; form.requestSubmit();
             }
             return;
@@ -24,7 +25,7 @@ document.addEventListener('submit', async event => {
     if (event.target.matches('[data-tenant-switch]') && dirty) {
         event.preventDefault();
         const form = event.target;
-        if (await confirmDialog('Mandant wechseln?', 'Ungespeicherte Änderungen verwerfen und den Mandanten wechseln?', 'Wechseln', true)) {
+        if (await confirmDialog(t('dialogs.switchTenantTitle'), t('dialogs.switchTenantMessage'), t('dialogs.switchAction'), true)) {
             dirty = false;
             form.requestSubmit();
         }
@@ -37,7 +38,7 @@ document.addEventListener('click', async event => {
     if (!dirty || !link || event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || link.target === '_blank') return;
     event.preventDefault();
     const href = link.href;
-    if (await confirmDialog('Änderungen verwerfen?', 'Ungespeicherte Änderungen gehen verloren.', 'Verwerfen', true)) {
+    if (await confirmDialog(t('dialogs.discardTitle'), t('dialogs.discardMessage'), t('dialogs.discardAction'), true)) {
         dirty = false;
         location.href = href;
     }

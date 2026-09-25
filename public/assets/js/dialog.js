@@ -1,4 +1,5 @@
 let busy = false;
+const display = value => window.o8TranslateSource ? window.o8TranslateSource(value) : value;
 
 function element() {
     let modal = document.getElementById('o8ActionDialog');
@@ -8,7 +9,7 @@ function element() {
     modal.className = 'modal fade';
     modal.tabIndex = -1;
     modal.setAttribute('aria-labelledby', 'o8ActionDialogTitle');
-    modal.innerHTML = '<div class="modal-dialog modal-dialog-centered"><form class="modal-content"><div class="modal-header"><h2 class="modal-title fs-5" id="o8ActionDialogTitle"></h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button></div><div class="modal-body"><p class="mb-0" id="o8ActionDialogMessage"></p><label class="form-label mt-3 mb-0" id="o8ActionDialogInputWrap" hidden>Name<input class="form-control mt-1" id="o8ActionDialogInput" maxlength="190" required></label></div><div class="modal-footer"><button type="button" class="btn btn-surface" data-bs-dismiss="modal">Abbrechen</button><button type="button" class="btn btn-outline-danger" id="o8ActionDialogAlternative" hidden></button><button type="submit" class="btn btn-primary" id="o8ActionDialogConfirm">Bestätigen</button></div></form></div>';
+    modal.innerHTML = `<div class="modal-dialog modal-dialog-centered"><form class="modal-content"><div class="modal-header"><h2 class="modal-title fs-5" id="o8ActionDialogTitle"></h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="${display('Schließen')}"></button></div><div class="modal-body"><p class="mb-0" id="o8ActionDialogMessage"></p><label class="form-label mt-3 mb-0" id="o8ActionDialogInputWrap" hidden>${display('Name')}<input class="form-control mt-1" id="o8ActionDialogInput" maxlength="190" required></label></div><div class="modal-footer"><button type="button" class="btn btn-surface" data-bs-dismiss="modal">${display('Abbrechen')}</button><button type="button" class="btn btn-outline-danger" id="o8ActionDialogAlternative" hidden></button><button type="submit" class="btn btn-primary" id="o8ActionDialogConfirm">${display('Bestätigen')}</button></div></form></div>`;
     document.body.append(modal);
     return modal;
 }
@@ -27,21 +28,21 @@ async function ask({title, message, label, destructive = false, input = false, c
         bootstrap.Modal.getOrCreateInstance(paused).hide();
         await hidden;
     }
-    modal.querySelector('#o8ActionDialogTitle').textContent = title;
-    modal.querySelector('#o8ActionDialogMessage').textContent = message;
-    modal.querySelector('.modal-footer [data-bs-dismiss="modal"]').textContent = cancelLabel;
+    modal.querySelector('#o8ActionDialogTitle').textContent = display(title);
+    modal.querySelector('#o8ActionDialogMessage').textContent = display(message);
+    modal.querySelector('.modal-footer [data-bs-dismiss="modal"]').textContent = display(cancelLabel);
     const field = modal.querySelector('#o8ActionDialogInput');
     field.value = '';
     field.disabled = !input;
     modal.querySelector('#o8ActionDialogInputWrap').hidden = !input;
     const confirm = modal.querySelector('#o8ActionDialogConfirm');
-    confirm.textContent = label;
+    confirm.textContent = display(label);
     confirm.classList.toggle('btn-danger', destructive);
     confirm.classList.toggle('btn-primary', !destructive);
     const alternativeButton = modal.querySelector('#o8ActionDialogAlternative');
     alternativeButton.hidden = !alternative;
     if (alternative) {
-        alternativeButton.textContent = alternative.label;
+        alternativeButton.textContent = display(alternative.label);
         alternativeButton.classList.toggle('btn-danger', Boolean(alternative.destructive));
         alternativeButton.classList.toggle('btn-outline-danger', !alternative.destructive);
     }

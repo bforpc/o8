@@ -12,13 +12,20 @@ use O8\Documents\TrashRetention;
 use O8\Inbound\{SourceManager,SourceConnectionTester,RemoteFetchJobs,AiConfiguration,AiJobs};
 use O8\Documents\Evaluation;
 
+$root=dirname(__DIR__);
+$languageCatalog=O8\Core\Languages::available($root.'/lang');
+$requestedLanguage=is_string($_GET['lang']??null)?$_GET['lang']:null;
+$language=O8\Core\Languages::selected($languageCatalog,$requestedLanguage??(is_string($_COOKIE['o8_language']??null)?$_COOKIE['o8_language']:null));
+if ($requestedLanguage!==null && isset($languageCatalog[$requestedLanguage])) setcookie('o8_language',$language,['expires'=>time()+31536000,'path'=>parse_url($_SERVER['SCRIPT_NAME']??'/',PHP_URL_PATH)?:'/','secure'=>isset($_SERVER['HTTPS'])&&$_SERVER['HTTPS']!=='off','httponly'=>true,'samesite'=>'Lax']);
+function tr(string $key,array $values=[]): string { global $languageCatalog,$language; return O8\Core\Languages::text($languageCatalog,$language,$key,$values); }
+
 ini_set('display_errors','0');
 header('Content-Type: text/html; charset=utf-8');
 header('Cache-Control: no-store');
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: no-referrer');
 header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
-$root=dirname(__DIR__); $message=''; $error=''; $installed=false; $actor=null; $fatal=false; $tenants=[]; $users=[]; $appearancePreferences=null; $config=null; $secure=false; $setupDiagnostics=[];
+$message=''; $error=''; $installed=false; $actor=null; $fatal=false; $tenants=[]; $users=[]; $appearancePreferences=null; $config=null; $secure=false; $setupDiagnostics=[];
 $section=is_string($_GET['section']??null) ? $_GET['section'] : '';
 $deletionJob=null; $deletionReview=null; $deletionId=0;
 $choices=[]; $schemaPending=false; $inviteCode=''; $importSources=[]; $sourceWorkerActive=false; $aiConfiguration=[]; $aiWorkerActive=false; $aiModels=[];
@@ -137,6 +144,14 @@ try {
         try {
             if (!hash_equals($_SESSION['csrf'],field('csrf'))) throw new RuntimeException('Sitzung abgelaufen. Bitte die Seite neu laden.');
             $action=field('action');
+            if ($action==='language_save') {
+                $selected=O8\Core\Languages::selected($languageCatalog,field('language'));
+                setcookie('o8_language',$selected,['expires'=>time()+31536000,'path'=>parse_url($_SERVER['SCRIPT_NAME']??'/',PHP_URL_PATH)?:'/','secure'=>$secure,'httponly'=>true,'samesite'=>'Lax']);
+                $_SESSION['flash']=O8\Core\Languages::text($languageCatalog,$selected,'language.saved');
+                $destination=in_array(field('section'),['account'],true)?'?section=account':'';
+                if (field('overlay')==='1') $destination.=($destination===''?'?':'&').'overlay=1';
+                header('Location: '.($_SERVER['SCRIPT_NAME']??'index.php').$destination,true,303); exit;
+            }
             if (in_array($action,['user_create','user_update','user_invite','accounting_save','session_timeout_save','tag_create','tag_rename','tag_delete','trash_retention_save','source_save','source_delete','source_test','ai_configuration_save','ai_models_refresh'],true) && (!$actor || $actor->kind!=='tenant' || !hash_equals($_SESSION['actor']['context_token']??'',field('context_token')) || field('context_token')==='')) throw new RuntimeException('Mandantenkontext geändert. Bitte die Seite neu laden.');
             $deleteRedirect=0;
             if ($action==='install' && !$installed) {
@@ -150,7 +165,7 @@ try {
                     }
                     $migrator=new Migrator($db,$root.'/database/migrations'); $migrator->install($identity);
                 });
-                $_SESSION['flash']='Installation abgeschlossen. Jetzt als Betreiber mit admin / owndms8 und demselben Einrichtungscode anmelden.';
+                $_SESSION['flash']=tr('flash.installed');
             } elseif ($action==='login' && $installed && !$actor) {
                 $loginSession=$auth->login(field('kind'),field('login'),field('password'),$_SERVER['REMOTE_ADDR']??'',field('setup_token'));
                 $_SESSION=['actor'=>$loginSession];
@@ -160,51 +175,51 @@ try {
             } elseif ($action==='password' && $actor) {
                 if (field('new_password')!==field('repeat_password')) throw new RuntimeException('Neue Passwörter stimmen nicht überein.');
                 $_SESSION['actor']=$auth->changePassword($actor,field('old_password'),field('new_password')); session_regenerate_id(true);
-                $_SESSION['flash']='Passwort geändert. Andere Anmeldungen dieses Kontos sind ungültig.';
+                $_SESSION['flash']=tr('flash.passwordChanged');
             } elseif ($action==='tenant_switch' && $actor) {
                 $next=$auth->switchTenant($actor,(int)field('tenant_id'),$_SESSION['actor']);
                 $_SESSION=['actor'=>$next]; session_regenerate_id(true);
             } elseif ($action==='invitation_accept' && $actor) {
                 $tenant=(new InvitationService($db))->accept($actor,field('invitation'));
                 $next=$auth->switchTenant($actor,$tenant,$_SESSION['actor']);
-                $_SESSION=['actor'=>$next,'flash'=>'Einladung angenommen. Mandant wurde geöffnet.']; session_regenerate_id(true);
+                $_SESSION=['actor'=>$next,'flash'=>tr('errors.invitationAccepted')]; session_regenerate_id(true);
             } elseif ($action==='bootstrap' && $actor) {
                 $uuid=(new BootstrapService($db))->complete($actor,field('display_name'),field('email'),field('tenant_name'));
-                $_SESSION['flash']='Erster Mandant eingerichtet. Normaler Benutzer-Login: admin oder Ihre E-Mail mit dem soeben gesetzten Passwort. Betreiber- und Benutzerkonto sind unabhängig.';
+                $_SESSION['flash']=tr('flash.tenantBootstrapped');
             } elseif ($action==='tenant_create' && $actor) {
                 $uuid=$administration->createTenant($actor,field('tenant_name'),field('contact_email'),accountInput());
-                $_SESSION['flash']=field('admin_mode')==='existing'?'Mandant angelegt und bestehendes Konto ausdrücklich als erster Admin zugeordnet.':'Mandant angelegt. Individuelles Startpasswort sicher mitteilen; beim Erstlogin muss es geändert werden.';
+                $_SESSION['flash']=tr(field('admin_mode')==='existing'?'flash.tenantCreatedExisting':'flash.tenantCreatedNew');
             } elseif ($action==='tenant_update' && $actor) {
                 confirmed(); $administration->updateTenant($actor,(int)field('id'),field('tenant_name'),field('contact_email'),field('active')==='1');
-                $_SESSION['flash']='Mandant gespeichert. Bei Statusänderung wurden seine Benutzersitzungen widerrufen.';
+                $_SESSION['flash']=tr('flash.tenantUpdated');
             } elseif ($action==='storage_configure' && $actor) {
                 confirmed(); (new Storage($db,$root))->configure($actor,(int)field('tenant_id'),field('root_path'),field('linux_owner'),field('linux_group'),field('enforce_file_attributes')==='1');
-                $_SESSION['flash']='Storage-Zuweisung geprüft und gespeichert. Bestehende Dateien wurden nicht verändert.';
+                $_SESSION['flash']=tr('flash.storageAssigned');
             } elseif ($action==='storage_relocate' && $actor) {
                 confirmed(); (new Storage($db,$root))->relocate($actor,(int)field('tenant_id'),field('root_path'));
-                $_SESSION['flash']='Storage-Pfad geprüft und geändert. Dateien wurden nicht verschoben oder verändert.';
+                $_SESSION['flash']=tr('flash.storageRelocated');
             } elseif ($action==='accounting_save' && $actor) {
                 $rates=array_values(array_filter(array_map('trim',preg_split('/\R/u',field('vat_rates')))));
                 $accounts=[]; foreach (preg_split('/\R/u',field('accounts')) as $line) { $line=trim($line); if ($line==='') continue; $parts=explode(';',$line,2); if (count($parts)!==2) throw new RuntimeException('Konten bitte als Nummer; Bezeichnung eingeben.'); $accounts[]=['code'=>trim($parts[0]),'name'=>trim($parts[1])]; }
                 (new Documents($db,$root))->saveAccountingSettings($actor,['framework'=>field('framework'),'vatRates'=>$rates,'accounts'=>$accounts]);
-                $_SESSION['flash']='Buchhaltungs-Einstellungen gespeichert.';
+                $_SESSION['flash']=tr('flash.accountingSaved');
             } elseif ($action==='session_timeout_save' && $actor) {
                 $auth->saveSessionMinutes($actor,field('minutes'));
-                $_SESSION['flash']='Sitzungsdauer für diesen Mandanten gespeichert.';
+                $_SESSION['flash']=tr('flash.sessionSaved');
             } elseif ($action==='tag_create' && $actor) {
                 (new Documents($db,$root))->createTag($actor,field('name'));
-                $_SESSION['flash']='Tag angelegt.';
+                $_SESSION['flash']=tr('flash.tagCreated');
             } elseif ($action==='tag_rename' && $actor) {
                 (new Documents($db,$root))->renameTag($actor,(int)field('id'),field('name'));
-                $_SESSION['flash']='Tag umbenannt; Dokumentzuordnungen bleiben erhalten.';
+                $_SESSION['flash']=tr('flash.tagRenamed');
             } elseif ($action==='tag_delete' && $actor) {
                 confirmed(); $count=(new Documents($db,$root))->deleteTag($actor,(int)field('id'),(int)field('document_count'));
-                $_SESSION['flash']='Tag gelöscht und von '.$count.' Dokumenten entfernt.';
+                $_SESSION['flash']=tr('flash.tagDeleted',['count'=>$count]);
             } elseif ($action==='trash_retention_save' && $actor) {
                 $days=field('days');
                 if (!ctype_digit($days)) throw new RuntimeException('Papierkorbfrist muss eine ganze Zahl sein.');
                 $retention=new TrashRetention($db,$root); $retention->saveDays($actor,(int)$days,field('retention_confirm')==='yes');
-                $_SESSION['flash']=(int)$days===0?'Papierkorb-Dokumente werden unbegrenzt aufbewahrt.':'Papierkorbfrist gespeichert. Die endgültige Löschung erfolgt erst durch den Serverdienst.';
+                $_SESSION['flash']=tr((int)$days===0?'flash.trashUnlimited':'flash.trashRetentionSaved');
             } elseif ($action==='source_save' && $actor) {
                 $sourceManager->save($actor,['acceptanceEnabled'=>field('acceptance_enabled')==='1','acceptanceTagMode'=>field('acceptance_tag_mode')?:'add','acceptanceFolders'=>$_POST['acceptance_folders']??[],'acceptanceTags'=>$_POST['acceptance_tags']??[],'id'=>field('id'),'revision'=>field('revision'),'kind'=>field('kind'),'name'=>field('source_name'),'interval'=>field('interval'),'host'=>field('host'),'port'=>field('port'),'security'=>field('security'),'username'=>field('username'),'folder'=>field('folder'),'url'=>field('url'),'recursive'=>field('recursive')==='1','deleteAfter'=>field('delete_after')==='1','aiMode'=>field('ai_mode'),'secret'=>field('source_secret'),'enabled'=>field('enabled')==='1']);
                 $automatic=field('enabled')==='1' && (int)field('interval')>0;
@@ -213,12 +228,12 @@ try {
                     : 'Eingangsquelle sicher gespeichert.'.($automatic?' Automatischer Abrufworker ist aktiv.':' Manueller Abruf benötigt keinen Cronjob.');
             } elseif ($action==='source_delete' && $actor) {
                 confirmed(); $sourceManager->delete($actor,(int)field('id'),(int)field('revision'));
-                $_SESSION['flash']='Unbenutzte Eingangsquelle und ihre verschlüsselten Zugangsdaten wurden gelöscht.';
+                $_SESSION['flash']=tr('flash.sourceDeleted');
             } elseif ($action==='ai_configuration_save' && $actor) {
                 $aiManager->save($actor,['revision'=>field('revision'),'enabled'=>field('enabled')==='1','external_processing_confirmed'=>field('external_processing_confirmed')==='1','endpoint'=>field('endpoint'),'primary_model'=>field('primary_model'),'fallback_model'=>field('fallback_model'),'instruction_text'=>field('instruction_text'),'timeout_seconds'=>field('timeout_seconds'),'secret'=>field('ai_secret')]);
-                $_SESSION['flash']='Externe KI-Verarbeitung sicher konfiguriert.';
+                $_SESSION['flash']=tr('flash.aiConfigured');
             } elseif ($action==='ai_models_refresh' && $actor) {
-                $models=$aiManager->models($actor); $_SESSION['ai_models']=['tenant'=>$actor->tenantId(),'expires'=>time()+600,'values'=>$models]; $_SESSION['flash']=count($models).' aktuelle IONOS-Modelle geladen. Bitte gewünschtes Modell auswählen und die KI-Konfiguration speichern.';
+                $models=$aiManager->models($actor); $_SESSION['ai_models']=['tenant'=>$actor->tenantId(),'expires'=>time()+600,'values'=>$models]; $_SESSION['flash']=tr('flash.aiModelsLoaded',['count'=>count($models)]);
             } elseif ($action==='tenant_delete_review' && $actor) {
                 $preview=$deletion->preview($actor,(int)field('id'));
                 $_SESSION['tenant_delete_review']=['id'=>(int)$preview['id'],'uuid'=>$preview['public_id'],'name'=>$preview['name'],'documents'=>$preview['documents'],'users'=>$preview['users'],'folders'=>$preview['folders'],'operator'=>$actor->id(),'stage'=>1,'expires'=>time()+600,'token'=>bin2hex(random_bytes(32))];
@@ -235,38 +250,38 @@ try {
                 unset($_SESSION['tenant_delete_review']); $deleteRedirect=$review['id'];
             } elseif ($action==='tenant_delete_step' && $actor) {
                 $job=$deletion->step($actor,(int)field('id'));
-                if ($job['phase']==='done') $_SESSION['flash']='Mandant und alle zugehörigen Anwendungsdaten und verwalteten Dateien wurden endgültig gelöscht. Keine Wiederherstellung über den Papierkorb möglich.';
+                if ($job['phase']==='done') $_SESSION['flash']=tr('flash.tenantDeleted');
                 else $deleteRedirect=(int)field('id');
             } elseif ($action==='source_test' && $actor) {
                 $probe=(new SourceConnectionTester($sourceManager))->test($actor,(int)field('id'));
                 $_SESSION['flash']=$probe['message'].' Gefundene '.($probe['kind']==='imap'?'Nachrichten':'Dateien').': '.$probe['count'].'.';
             } elseif ($action==='ai_configuration_save' && $actor) {
                 $aiManager->save($actor,['revision'=>field('revision'),'enabled'=>field('enabled')==='1','external_processing_confirmed'=>field('external_processing_confirmed')==='1','endpoint'=>field('endpoint'),'primary_model'=>field('primary_model'),'fallback_model'=>field('fallback_model'),'instruction_text'=>field('instruction_text'),'timeout_seconds'=>field('timeout_seconds'),'secret'=>field('ai_secret')]);
-                $_SESSION['flash']='Externe KI-Verarbeitung sicher konfiguriert.';
+                $_SESSION['flash']=tr('flash.aiConfigured');
             } elseif ($action==='ai_models_refresh' && $actor) {
-                $models=$aiManager->models($actor); $_SESSION['ai_models']=['tenant'=>$actor->tenantId(),'expires'=>time()+600,'values'=>$models]; $_SESSION['flash']=count($models).' aktuelle IONOS-Modelle geladen. Bitte gewünschtes Modell auswählen und die KI-Konfiguration speichern.';
+                $models=$aiManager->models($actor); $_SESSION['ai_models']=['tenant'=>$actor->tenantId(),'expires'=>time()+600,'values'=>$models]; $_SESSION['flash']=tr('flash.aiModelsLoaded',['count'=>count($models)]);
             } elseif ($action==='tenant_delete_review' && $actor) {
                 $administration->createUser($actor,accountInput(),field('role'));
-                $_SESSION['flash']='Benutzer angelegt. Startpasswort sicher mitteilen; beim ersten Login ist ein Passwortwechsel erforderlich.';
+                $_SESSION['flash']=tr('flash.userCreated');
             } elseif ($action==='user_update' && $actor) {
                 confirmed(); $administration->updateUser($actor,(int)field('id'),(int)field('version'),field('display_name'),field('role'),field('active')==='1');
-                $_SESSION['flash']='Zuordnung gespeichert. Bestehende Zugriffe auf diesen Mandanten wurden widerrufen; andere Mandanten bleiben unverändert.';
+                $_SESSION['flash']=tr('flash.membershipUpdated');
             } elseif ($action==='user_create' && $actor) {
                 $administration->createUser($actor,accountInput(),field('role'));
-                $_SESSION['flash']='Benutzer angelegt. Startpasswort sicher mitteilen; beim ersten Login ist ein Passwortwechsel erforderlich.';
+                $_SESSION['flash']=tr('flash.userCreated');
             } elseif ($action==='user_update' && $actor) {
                 confirmed(); $administration->updateUser($actor,(int)field('id'),(int)field('version'),field('display_name'),field('role'),field('active')==='1');
-                $_SESSION['flash']='Zuordnung gespeichert. Bestehende Zugriffe auf diesen Mandanten wurden widerrufen; andere Mandanten bleiben unverändert.';
+                $_SESSION['flash']=tr('flash.membershipUpdated');
             } elseif ($action==='user_invite' && $actor) {
                 $_SESSION['invite_code']=$administration->inviteUser($actor,field('role'));
             } elseif ($action==='tenant_login' && $actor) {
                 $actor->requireOperator(); $hint=null;
                 foreach ($administration->tenants($actor) as $item) if ($item['public_id']===field('tenant') && $item['active']) $hint=$item['public_id'];
                 if (!$hint) throw new RuntimeException('Mandant nicht verfügbar.');
-                $_SESSION=['flash'=>'Betreiber abgemeldet. Bitte mit dem gemeinsamen Benutzerkonto anmelden.']; session_regenerate_id(true);
+                $_SESSION=['flash'=>tr('errors.operatorSignedOut')]; session_regenerate_id(true);
             } elseif ($action==='tenant_delete_cancel' && $actor) {
                 $actor->requireOperator(); unset($_SESSION['tenant_delete_review']);
-                $_SESSION['flash']='Löschvorbereitung abgebrochen. Kein Löschauftrag gestartet.';
+                $_SESSION['flash']=tr('flash.deleteCancelled');
             } else throw new RuntimeException('Aktion in diesem Zustand nicht erlaubt.');
             $_SESSION['csrf']=bin2hex(random_bytes(32));
             $destination=in_array(field('section'),['tenants','users','account','storage','accounting','settings','documents'],true)?'?section='.field('section'):'';
@@ -275,7 +290,7 @@ try {
             if ($deleteRedirect) $destination='?section=tenant_delete&id='.$deleteRedirect;
             if (field('overlay')==='1') $destination.=($destination===''?'?':'&').'overlay=1';
             header('Location: '.($_SERVER['SCRIPT_NAME']??'index.php').$destination,true,303); exit;
-        } catch (PDOException $exception) { $error='Datenbankaktion fehlgeschlagen. Zugang, Schema und Berechtigungen prüfen.'; }
+        } catch (PDOException $exception) { $error=tr('flash.databaseAction'); }
         catch (RuntimeException|InvalidArgumentException $exception) { $error=$exception->getMessage(); }
     }
     $message=$_SESSION['flash']??''; unset($_SESSION['flash']);
@@ -334,7 +349,9 @@ try {
     $setupDiagnostics=setupDiagnostics($root,$secure,$config);
     $error=$schemaPending?'Datenbankschema wird aktualisiert. Auf dem Server php bin/setup.php upgrade ausführen; keine Neuinstallation erforderlich.':safeStartupFailureSummary($exception);
 }
-if (isset($_GET['api'])) { header('Content-Type: application/json; charset=utf-8'); echo json_encode(['success'=>false,'error'=>$error]); exit; }
+if (isset($_GET['api'])) { $error=O8\Core\Languages::display($languageCatalog,$language,$error); header('Content-Type: application/json; charset=utf-8'); echo json_encode(['success'=>false,'error'=>$error]); exit; }
+$error=O8\Core\Languages::display($languageCatalog,$language,$error);
+$message=O8\Core\Languages::display($languageCatalog,$language,$message);
 if (($_GET['overlay']??'')==='1' && !$fatal && $actor && in_array($actor->kind,['tenant','account'],true) && !$actor->row['must_change_password'] && !($actor->row['bootstrap_pending']??false)) {
     header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'self'");
     require __DIR__.'/views/admin-overlay.php'; return;

@@ -4,7 +4,8 @@ import { bookingSummary } from './booking-summary.js';
 import { DocumentReviewPreview } from './document-review-preview.js';
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const date=value=>/^\d{4}-\d{2}-\d{2}$/.test(value||'')?value.split('-').reverse().join('.'):'Datum fehlt';
+const t=(key,values={})=>window.o8Translate?.(`client.${key}`,values)||'';
+const date=value=>/^\d{4}-\d{2}-\d{2}$/.test(value||'')?value.split('-').reverse().join('.'):t('noDate');
 
 export class InboundBatchDialog {
     constructor(api,metadata,refresh,preview=null) {
@@ -27,14 +28,14 @@ export class InboundBatchDialog {
     async open(items) {
         if(this.running||this.loading)return;
         this.preview.clear();this.previewId=null;
-        this.rows=[]; this.picker=null; this.loading=true; this.form.querySelectorAll('[data-bs-dismiss]').forEach(x=>x.disabled=true); this.form.querySelector('.modal-body').innerHTML='<p role="status">KI-Daten und Übernahmefähigkeit werden geprüft …</p>';
+        this.rows=[]; this.picker=null; this.loading=true; this.form.querySelectorAll('[data-bs-dismiss]').forEach(x=>x.disabled=true); this.form.querySelector('.modal-body').innerHTML=`<p role="status">${esc(t('inboundCheckLoading'))}</p>`;
         this.form.querySelector('[type="submit"]').disabled=true;
         bootstrap.Modal.getOrCreateInstance(this.modal).show();
         try {
             // Bounded read requests keep even a large entrance selection responsive.
             for(let offset=0;offset<items.length;offset+=25) {
                 this.rows.push(...await this.api('inboundBatchPreview',{items:JSON.stringify(items.slice(offset,offset+25))},true));
-                this.form.querySelector('[role="status"]').textContent=`${Math.min(offset+25,items.length)} von ${items.length} geprüft …`;
+                this.form.querySelector('[role="status"]').textContent=t('checkedProgress',{done:Math.min(offset+25,items.length),total:items.length});
             }
             this.render();
         } catch(error) { this.form.querySelector('.modal-body').textContent=error.message; }
@@ -42,11 +43,11 @@ export class InboundBatchDialog {
     }
     render() {
         const meta=this.metadata();
-        this.form.querySelector('.modal-body').innerHTML=`<p class="small text-body-secondary">Titel und Dokumentdatum kommen aus der KI. Vorhandene Buchungsbeträge werden übernommen; fehlende Werte bleiben offen. Andere fehlende oder ungültige KI-Metadaten können die Mehrfachübernahme weiterhin sperren.</p>
-            <section class="o8-info-group o8-info-group--head"><h3 class="h6">Dokumente</h3><p id="batchSelectionSummary" role="status"></p><button type="button" class="btn btn-surface btn-sm mb-2" data-batch-all>Geeignete markieren / demarkieren</button>
-            <ul class="inbound-batch-list">${this.rows.map(row=>`<li data-batch-row="${row.id}"><div class="d-flex gap-2 align-items-start"><input class="form-check-input" type="checkbox" data-batch-select="${row.id}" id="batch-item-${row.id}" ${row.batchEligible?'checked':'disabled'} aria-describedby="batch-reason-${row.id}"><div class="flex-grow-1"><label for="batch-item-${row.id}">${esc(row.title||row.originalName||'E'+row.id)}</label><div class="small text-body-secondary">E${row.id} · ${esc(date(row.date))} · ${esc(row.originalName||'')}</div><p class="small mb-1" id="batch-reason-${row.id}">${esc(row.batchEligible?(row.invoiceCalculations?.join(' ')||'Übernahmefähig.'):(row.batchReasons||[]).join(' '))}</p><div class="small text-body-secondary" data-batch-tags="${row.id}"></div><strong class="small" data-batch-result="${row.id}" role="status"></strong></div></div></li>`).join('')}</ul></section>
-            <fieldset class="o8-info-group o8-info-group--soft" id="batchSharedFields"><legend>Gemeinsame Angaben</legend><label class="d-block mb-2">Tags<select class="form-select" name="tagMode"><option value="add">Vorhandene KI-Tags verwenden und manuelle Tags ergänzen</option><option value="replace">KI-Tags verwerfen – nur manuelle Tags verwenden</option></select></label><div id="batchTagPicker"></div><h3 class="h6 mt-3" id="batchFoldersTitle">Zielordner (optional)</h3><div class="accept-folder-picker" role="group" aria-labelledby="batchFoldersTitle">${folderTreeMarkup(meta.folders)}</div><p class="small text-body-secondary">Ohne Zielordner erscheinen die Dokumente unter „Alle Dokumente“. Besitzer bleiben unverändert.</p></fieldset>
-            <div class="o8-info-group o8-info-group--strong" id="batchProgressWrap" hidden><progress id="batchProgress" class="w-100" value="0" max="1"></progress><p id="batchProgressText" role="status"></p><button type="button" class="btn btn-surface btn-sm" data-batch-stop>Nach diesem Dokument anhalten</button></div><p id="batchError" class="text-danger" role="alert"></p>`;
+        this.form.querySelector('.modal-body').innerHTML=`<p class="small text-body-secondary">${esc(t('batchIntro'))}</p>
+            <section class="o8-info-group o8-info-group--head"><h3 class="h6">${esc(t('documents'))}</h3><p id="batchSelectionSummary" role="status"></p><button type="button" class="btn btn-surface btn-sm mb-2" data-batch-all>${esc(t('batchMarkEligible'))}</button>
+            <ul class="inbound-batch-list">${this.rows.map(row=>`<li data-batch-row="${row.id}"><div class="d-flex gap-2 align-items-start"><input class="form-check-input" type="checkbox" data-batch-select="${row.id}" id="batch-item-${row.id}" ${row.batchEligible?'checked':'disabled'} aria-describedby="batch-reason-${row.id}"><div class="flex-grow-1"><label for="batch-item-${row.id}">${esc(row.title||row.originalName||'E'+row.id)}</label><div class="small text-body-secondary">E${row.id} · ${esc(date(row.date))} · ${esc(row.originalName||'')}</div><p class="small mb-1" id="batch-reason-${row.id}">${esc(row.batchEligible?(row.invoiceCalculations?.join(' ')||t('batchEligible')):(row.batchReasons||[]).join(' '))}</p><div class="small text-body-secondary" data-batch-tags="${row.id}"></div><strong class="small" data-batch-result="${row.id}" role="status"></strong></div></div></li>`).join('')}</ul></section>
+            <fieldset class="o8-info-group o8-info-group--soft" id="batchSharedFields"><legend>${esc(t('sharedDetails'))}</legend><label class="d-block mb-2">${esc(window.o8Translate?.('search.tags')||'')}<select class="form-select" name="tagMode"><option value="add">${esc(t('aiTagsAndManual'))}</option><option value="replace">${esc(t('discardAiTags'))}</option></select></label><div id="batchTagPicker"></div><h3 class="h6 mt-3" id="batchFoldersTitle">${esc(t('targetFolderOptional'))}</h3><div class="accept-folder-picker" role="group" aria-labelledby="batchFoldersTitle">${folderTreeMarkup(meta.folders)}</div><p class="small text-body-secondary">${esc(t('noTargetFolder'))}</p></fieldset>
+            <div class="o8-info-group o8-info-group--strong" id="batchProgressWrap" hidden><progress id="batchProgress" class="w-100" value="0" max="1"></progress><p id="batchProgressText" role="status"></p><button type="button" class="btn btn-surface btn-sm" data-batch-stop>${esc(t('stopAfterDocument'))}</button></div><p id="batchError" class="text-danger" role="alert"></p>`;
         this.picker=new TagPicker(document.getElementById('batchTagPicker'),meta.tags.map(t=>t.name),[],()=>this.update(),'Gemeinsame Tags suchen');
         for(const row of this.rows) {
             if(!row.invoice)continue;
@@ -70,13 +71,13 @@ export class InboundBatchDialog {
     update() {
         if(this.loading||!this.picker||!this.form.elements.tagMode)return;
         const ready=this.rows.filter(r=>r.batchEligible&&!r.done), selected=this.form.querySelectorAll('[data-batch-select]:checked:not(:disabled)').length;
-        document.getElementById('batchSelectionSummary').textContent=`${selected} ausgewählt · ${ready.length} übernahmefähig · ${this.rows.filter(r=>!r.batchEligible).length} gesperrt`;
+        document.getElementById('batchSelectionSummary').textContent=t('selectedEligibleLocked',{selected,ready:ready.length,locked:this.rows.filter(r=>!r.batchEligible).length});
         this.form.querySelector('[type="submit"]').disabled=this.running||!selected;
         this.form.querySelector('[data-batch-all]').hidden=!ready.length;
         const manual=this.picker.values();
         for(const row of this.rows) {
             const tags=[...new Set([...(this.form.elements.tagMode.value==='add'?(row.matchedTags||[]).map(t=>t.name):[]),...manual])];
-            this.form.querySelector(`[data-batch-tags="${row.id}"]`).textContent=`Tags zur Übernahme: ${tags.join(', ')||'Keine'}${row.ignoredTags?.length?' · Unbekannte KI-Tags ignoriert: '+row.ignoredTags.join(', '):''}`;
+            this.form.querySelector(`[data-batch-tags="${row.id}"]`).textContent=t('tagsToImport',{tags:tags.join(', ')||t('none')})+(row.ignoredTags?.length?' · '+t('unknownAiTagsIgnored',{tags:row.ignoredTags.join(', ')}):'');
         }
     }
     async run(event) {
@@ -96,16 +97,16 @@ export class InboundBatchDialog {
         try {
             for(const row of rows) {
                 if(this.stopping)break;
-                summary.textContent=`${done+failed} von ${rows.length} verarbeitet – E${row.id} wird übernommen …`;
-                const result=this.form.querySelector(`[data-batch-result="${row.id}"]`); result.textContent='Übernahme läuft …';
+                summary.textContent=t('processingItem',{processed:done+failed,total:rows.length,id:row.id});
+                const result=this.form.querySelector(`[data-batch-result="${row.id}"]`); result.textContent=t('acceptanceRunning');
                 try {
                     const response=await this.api('inboundBatchAccept',{id:row.id,revision:row.revision,proposalToken:row.proposalToken,shared:JSON.stringify(shared)},true);
-                    row.done=true; row.documentId=response.id; done++; result.textContent=`Übernommen als D${response.id}`;
+                    row.done=true; row.documentId=response.id; done++; result.textContent=t('acceptedAs',{id:response.id});
                     if(this.previewId===Number(row.id))this.previewRow(row.id);
-                } catch(error) {failed++; result.textContent=`Übernahme nicht bestätigt: ${error.message}`;}
+                } catch(error) {failed++; result.textContent=t('acceptanceUnconfirmed',{error:error.message});}
                 progress.value=done+failed;
             }
-            summary.textContent=`${done} übernommen · ${failed} fehlgeschlagen · ${rows.length-done-failed} nicht verarbeitet. Erfolgreiche Übernahmen bleiben gespeichert.`;
+            summary.textContent=t('batchDone',{done,failed,remaining:rows.length-done-failed});
             await this.refresh();
         } catch(error) {document.getElementById('batchError').textContent=error.message;}
         finally {

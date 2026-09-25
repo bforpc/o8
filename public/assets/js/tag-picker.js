@@ -1,12 +1,15 @@
 // Suchbare Mehrfachauswahl; neue Tags werden erst nach Bestätigung beim Speichern angelegt.
+const fallback = {newTagConfirmTitle:'Neues Tag anlegen?',newTagConfirmMessage:'Tag „{tag}“ existiert noch nicht. Im Tag-Katalog anlegen und diesem Dokument zuordnen?',newTagConfirmAction:'Tag anlegen',newTagRejectAction:'Nicht hinzufügen'};
+const t = (key, values={}) => (globalThis.o8Translate ? globalThis.o8Translate(`common.${key}`, values) : (fallback[key]||'')).replace(/\{([a-zA-Z][a-zA-Z0-9_]*)\}/g,(_,name)=>Object.hasOwn(values,name)?String(values[name]):'');
+const source = value => globalThis.o8TranslateSource ? globalThis.o8TranslateSource(value) : value;
 export class TagPicker {
     constructor(container, tags, selected = [], onChange = () => {}, label = 'Vorhandene Tags suchen', allowNew = false) {
         this.onChange = onChange;
         this.container = container; this.tags = [...tags].sort((a,b) => a.localeCompare(b, 'de')); this.allowNew=allowNew;
         this.selected = new Set(selected); this.activeIndex = -1;
-        container.innerHTML = '<div class="selected-tags"></div><div class="tag-search-wrap"><input class="form-control" type="search" role="combobox" aria-label="Vorhandene Tags suchen" aria-autocomplete="list" aria-expanded="false" autocomplete="off" maxlength="190" placeholder="Tags suchen und auswählen …"><div class="tag-picker-options" role="listbox" aria-label="Verfügbare Tags" aria-multiselectable="true" hidden></div></div><div class="tag-picker-count" role="status"></div>';
+        container.innerHTML = '<div class="selected-tags"></div><div class="tag-search-wrap"><input class="form-control" type="search" role="combobox" aria-autocomplete="list" aria-expanded="false" autocomplete="off" maxlength="190"><div class="tag-picker-options" role="listbox" aria-multiselectable="true" hidden></div></div><div class="tag-picker-count" role="status"></div>';
         this.input = container.querySelector('input'); this.list = container.querySelector('[role="listbox"]');
-        this.input.setAttribute('aria-label', label);
+        this.input.placeholder = t('tagsSearchPlaceholder'); this.input.setAttribute('aria-label', source(label) || t('existingTagsSearch')); this.list.setAttribute('aria-label',t('availableTags'));
         this.list.id = `${container.id}-options`; this.input.setAttribute('aria-controls', this.list.id);
         this.input.addEventListener('focus', () => this.open());
         this.input.addEventListener('input', () => { this.activeIndex = -1; this.open(); });
@@ -41,10 +44,10 @@ export class TagPicker {
         const box = this.container.querySelector('.selected-tags'); box.replaceChildren();
         for (const tag of this.selected) {
             const button = document.createElement('button'); button.type = 'button'; button.className = 'selected-tag';
-            button.textContent = `${tag}${this.tags.some(name => this.same(name,tag))?'':' (neu)'} ×`; button.setAttribute('aria-label', `Tag ${tag} entfernen`);
+            button.textContent = `${tag}${this.tags.some(name => this.same(name,tag))?'':` (${t('tagNewBadge')})`} ×`; button.setAttribute('aria-label', t('tagRemove',{tag}));
             button.addEventListener('click', () => this.toggle(tag)); box.append(button);
         }
-        this.container.querySelector('.tag-picker-count').textContent = `${this.selected.size} ausgewählt · ${this.tags.length} Tags verfügbar`;
+        this.container.querySelector('.tag-picker-count').textContent = t('tagPickerCount',{selected:this.selected.size,available:this.tags.length});
     }
     renderOptions() {
         const query = this.input.value.trim().toLocaleLowerCase('de');
@@ -54,13 +57,13 @@ export class TagPicker {
         this.matches.forEach((tag, index) => {
             const option = document.createElement('button'); option.type = 'button'; option.tabIndex = -1; option.id = `${this.list.id}-${index}`;
             option.setAttribute('role', 'option'); option.setAttribute('aria-selected', String(this.selected.has(tag)));
-            option.textContent = this.tags.some(name => this.same(name,tag)) ? `${this.selected.has(tag) ? '✓ ' : ''}${tag}` : `Neues Tag „${tag}“ vormerken`;
+            option.textContent = this.tags.some(name => this.same(name,tag)) ? `${this.selected.has(tag) ? '✓ ' : ''}${tag}` : t('newTagQueue',{tag});
             option.addEventListener('mousedown', event => event.preventDefault());
             option.addEventListener('click', () => this.toggle(tag)); this.list.append(option);
         });
-        if (!this.matches.length) { const empty = document.createElement('div'); empty.className = 'tag-picker-empty'; empty.textContent = 'Keine passenden Tags.'; this.list.append(empty); }
+        if (!this.matches.length) { const empty = document.createElement('div'); empty.className = 'tag-picker-empty'; empty.textContent = t('noMatchingTags'); this.list.append(empty); }
         else if (this.tags.filter(tag => tag.toLocaleLowerCase('de').includes(query)).length > 60) {
-            const hint = document.createElement('div'); hint.className = 'tag-picker-empty'; hint.textContent = 'Erste 60 Treffer. Suche eingrenzen, um weitere Tags zu finden.'; this.list.append(hint);
+            const hint = document.createElement('div'); hint.className = 'tag-picker-empty'; hint.textContent = t('firstTagsHint'); this.list.append(hint);
         }
         this.markActive();
     }
@@ -74,7 +77,7 @@ export class TagPicker {
 
 export async function confirmNewTagSelection(picker, confirm) {
     for (const name of picker.newValues()) {
-        const accepted=await confirm('Neues Tag anlegen?',`Tag „${name}“ existiert noch nicht. Im Tag-Katalog anlegen und diesem Dokument zuordnen?`,'Tag anlegen',false,'Nicht hinzufügen');
+        const accepted=await confirm(t('newTagConfirmTitle'),t('newTagConfirmMessage',{tag:name}),t('newTagConfirmAction'),false,t('newTagRejectAction'));
         if (!accepted) picker.toggle(name);
     }
     return picker.newValues();

@@ -104,6 +104,7 @@ try {
     if (!http_response_code() || http_response_code()===200) http_response_code(400);
     header('Content-Type: application/json; charset=utf-8');
     $message=$e instanceof PDOException?'Datenbankaktion fehlgeschlagen. Eventuell existiert dieser Name bereits.':($e instanceof RuntimeException?$e->getMessage():'Ungültige Eingabe oder interner Fehler. Bitte neu laden.');
+    $message=O8\Core\Languages::display($languageCatalog,$language,$message);
     echo json_encode(['success'=>false,'error'=>$message],JSON_INVALID_UTF8_SUBSTITUTE);
 }
 exit;

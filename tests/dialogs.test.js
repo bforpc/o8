@@ -63,9 +63,23 @@ test('live drag and drop keeps checkbox selection and uses atomic bulk linking',
     assert.match(source, /folderAction:mode==='move'\?'move':'add'/);
     assert.match(source, /choiceDialog\('Dokumente ablegen'/);
     assert.match(source, /sourceFolderId:mode==='move'\?String\(sourceFolderId\):''/);
-    assert.match(source, /handleFolderDrop\(drag\.ids,folder,drag\.kind\)/);
+    assert.match(source, /handleFolderDrop\(drag\.ids,targetFolderId,drag\.kind\)/);
     assert.match(source, /data-drag-inbound/);
-    assert.match(source, /acceptanceDialog\.open\(ids\[0\],Number\(folder\.dataset\.dropFolder\)\)/);
+    assert.match(source, /acceptanceDialog\.open\(ids\[0\],targetFolderId\)/);
+});
+
+test('folder tree expansion is saved per-user and temporary drag expansion is restored',()=>{
+    const source=read('live-workspace.js');
+    const backend=readProject('app/Documents/Documents.php');
+    const css=readProject('public/assets/css/live.css');
+    assert.match(source,/preferences\.collapsedFolders=\[\.\.\.collapsedFolderIds\]\.map\(Number\)/);
+    assert.match(source,/data-folder-toggle/);
+    assert.match(source,/hiddenById\.get\(parent\)===true \|\| collapsedFolderIds\.has\(parent\)/);
+    assert.match(source,/dragCollapsedSnapshot=new Set\(collapsedFolderIds\)/);
+    assert.match(source,/const restoreDragFolderExpansion = \(\) =>/);
+    assert.match(source,/restoreDragFolderExpansion\(\); clearDropTarget\(\)/);
+    assert.match(backend,/SELECT COUNT\(\*\) FROM folders WHERE tenant_id=\? AND id IN/);
+    assert.match(css,/\.folder-nav-row\[hidden\] \{ display: none !important; \}/);
 });
 
 test('live search switches between global and current-folder scope and keeps view-only details compact', () => {
@@ -73,7 +87,7 @@ test('live search switches between global and current-folder scope and keeps vie
     assert.match(source, /searchMode: 'global'/);
     assert.match(source, /localScope: 'inbox'/);
     assert.match(source, /state\.searchMode === 'global' \? 'all' : state\.localScope/);
-    assert.match(source, /button\.textContent = local \? 'im akt\. Ordner' : 'Global'/);
+    assert.match(source, /button\.textContent = local \? searchTr\('localShort'\) : searchTr\('global'\)/);
     assert.match(source, /state\.localScope = button\.dataset\.scope/);
     assert.match(source, /state\.scope = hasActiveSearch\(\) && state\.searchMode === 'global' \? 'all' : state\.localScope/);
     assert.doesNotMatch(source, /if \(hasActiveSearch\(\)\) \{ state\.searchMode = 'local'/);
