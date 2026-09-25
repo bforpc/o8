@@ -47,10 +47,16 @@ Do not enable a source until this command returns `imap`. The maintained PECL IM
    ```
 
    o8 creates `storage/system/sessions` itself with mode `0700`. If the installer should create `config.php`, the project directory must be writable by the PHP account temporarily; remove that extra write permission after setup. Alternatively copy `config.php.dist` to `config.php`, replace **all** example database credentials, and restrict the file to the PHP account (for example mode `0640`). Never commit `config.php`.
-3. From the project directory run `php bin/setup.php token` on the server. Keep the printed setup code private; it expires after 60 minutes.
+3. From the project directory generate the setup code **as the same operating-system user that runs web PHP**. On Debian with Apache this is normally `www-data`:
+
+   ```sh
+   sudo -u www-data php bin/setup.php token
+   ```
+
+   Do not run this command as `root`: the code is stored in `storage/system/` and must be readable by the web-PHP process. Keep the printed setup code private; it expires after 60 minutes.
 4. Open o8 in the browser. The installer uses the setup code and the credentials from the web form or your local `config.php`. It refuses a non-empty foreign database.
 5. Use **Operator login** for the first sign-in. The initial operator account is `admin` with the one-time start password `owndms8`; enter the setup code again under the first-installation option. Change the start password immediately when prompted.
-6. Complete the operator profile and create the first tenant. The tenant admin account is distinct from the operator account. Sign in normally to work with tenant documents.
+6. Complete the operator profile and create the first tenant. This creates a distinct tenant-admin account with login `admin` (or the entered email address) and the password you just set for the operator. Sign out, then sign in through the normal user login. The tenant-admin account can manage further tenant users; later password changes affect only that account.
 7. As operator, open **Storage**, select the tenant, and validate an existing canonical base directory outside the project. Specify the Linux owner and group that should own new files. o8 creates and checks the tenant-specific directory; it does not mount a filesystem or move existing files for you.
 
 For a local development-only run, `php -S 127.0.0.1:18088 router.php` serves the project at `http://127.0.0.1:18088/`. Do not expose this router to a network.

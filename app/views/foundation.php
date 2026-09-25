@@ -37,7 +37,7 @@
 <section class="card foundation-panel"><div class="card-body p-4">
 <?php if (!$installed): ?>
 <h2 class="h4">Datenbank einrichten</h2><p>Nur eine eigene, leere Datenbank verwenden. Vorhandene Fremddaten werden nicht überschrieben.</p>
-<p>Auf dem Server einmal <code>php bin/setup.php token</code> ausführen. Der Code gilt eine Stunde und schützt auch die erste Anmeldung.</p>
+<p>Auf Debian/Apache einmal als Web-PHP-Benutzer ausführen: <code>sudo -u www-data php bin/setup.php token</code>. Nicht als root ausführen: Der Code muss in derselben lokalen Systemablage wie die Webanwendung gespeichert werden. Der Code gilt eine Stunde und schützt auch die erste Anmeldung.</p>
 <form method="post"><input type="hidden" name="csrf" value="<?= h($_SESSION['csrf']) ?>"><input type="hidden" name="action" value="install">
 <?php if ($config): ?><p class="alert alert-info">Lokale config.php wird verwendet. Datenbank: <?= h($config['database']['name']) ?> · Benutzer: <?= h($config['database']['user']) ?>. Das Passwort wird nicht angezeigt.</p>
 <?php else: foreach (['host'=>['Host','localhost'],'port'=>['Port','3306'],'name'=>['Datenbank','o8'],'user'=>['DB-Benutzer','o8'],'password'=>['DB-Passwort','o8']] as $key=>$spec): ?>
@@ -61,7 +61,7 @@
 <label class="form-label d-block"><?= h($label) ?><input type="password" class="form-control" name="<?= h($key) ?>" autocomplete="<?= $key==='old_password'?'current-password':'new-password' ?>" required></label>
 <?php endforeach ?><button class="btn btn-primary mt-2">Passwort speichern</button></form>
 <?php elseif ($actor->row['bootstrap_pending']??false): ?>
-<h2 class="h4">Administrator &amp; erster Mandant</h2><p>Es wird ausdrücklich ein separates Admin-Konto für diesen ersten Mandanten angelegt. Der Betreiber-Zugang selbst hat keinen Dokumentzugriff.</p>
+<h2 class="h4">Administrator &amp; erster Mandant</h2><p>Es wird ausdrücklich ein separates Admin-Konto für diesen ersten Mandanten angelegt. Der Betreiber-Zugang selbst hat keinen Dokumentzugriff. Das neue Mandanten-Admin-Konto verwendet den Login <code>admin</code> (oder Ihre unten angegebene E-Mail-Adresse) und zunächst dasselbe Passwort, das Sie gerade für den Betreiber festgelegt haben. Danach normal ab- und mit diesem Konto wieder anmelden.</p>
 <form method="post"><input type="hidden" name="csrf" value="<?= h($_SESSION['csrf']) ?>"><input type="hidden" name="action" value="bootstrap">
 <?php foreach (['display_name'=>'Ihr Name','email'=>'E-Mail-Adresse','tenant_name'=>'Name des ersten Mandanten'] as $key=>$label): ?>
 <label class="form-label d-block"><?= h($label) ?><input class="form-control" name="<?= h($key) ?>" type="<?= $key==='email'?'email':'text' ?>" required maxlength="<?= $key==='email'?254:190 ?>"></label>

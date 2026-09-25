@@ -5,7 +5,7 @@
 <label class="form-label d-block">Mandantenname<input class="form-control" name="tenant_name" required maxlength="190"></label>
 <p class="small text-secondary">Der Name muss eindeutig sein – auch gegenüber gesperrten Mandanten. Groß-/Kleinschreibung und Leerzeichen am Rand unterscheiden keine Namen.</p>
 <label class="form-label d-block">Kontakt-E-Mail (optional)<input class="form-control" name="contact_email" type="email" maxlength="254"></label>
-</section><section class="o8-info-group o8-info-group--soft"><h4 class="h6">Erster Administrator dieses Mandanten</h4>
+</section><section class="o8-info-group o8-info-group--soft"><h4 class="h6">Erster Administrator dieses Mandanten</h4><p class="small text-secondary">Ein Mandant wird ausschließlich zusammen mit mindestens einem aktiven Administrator angelegt. Dieser meldet sich anschließend über die normale Benutzer-Anmeldung an und kann weitere Benutzer verwalten.</p>
 <label class="form-label d-block">Konto<select class="form-select" name="admin_mode" data-account-mode><option value="new">Neues Benutzerkonto anlegen</option><option value="existing">Bestehendes Benutzerkonto zuordnen</option></select></label>
 <div data-new-account>
 <?php require __DIR__.'/admin-new-user.php'; ?>

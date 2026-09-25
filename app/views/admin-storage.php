@@ -6,7 +6,7 @@
 <?php if (!$location['active']): ?><p>Mandant gesperrt; keine Einrichtung möglich.</p><?php else: ?>
 <?php if (!$location['root_path']): ?>
 <form method="post"><?php postFields('storage_configure','storage'); ?><input type="hidden" name="tenant_id" value="<?= h($location['id']) ?>">
-<label class="form-label d-block">Storage-Basispfad (bereits vorhanden)<input class="form-control" name="root_path" placeholder="/mnt/o8/storge" required maxlength="700" value="/mnt/o8/storge"></label>
+<label class="form-label d-block">Storage-Basispfad (bereits vorhanden)<input class="form-control" name="root_path" placeholder="/mnt/o8/storage" required maxlength="700" value="/mnt/o8/storage"></label>
 <div class="row"><label class="form-label col-sm-6">Linux-Besitzer<input class="form-control" name="linux_owner" required maxlength="100" value="www-data"></label><label class="form-label col-sm-6">Linux-Gruppe<input class="form-control" name="linux_group" required maxlength="100" value="www-data"></label></div>
 <p class="small text-break">Mandanten-Unterverzeichnis: <code><?= h($location['public_id']) ?>/</code>. Schreib-, Lese-, Umbenennungs- und Löschtest mit eigener temporärer Datei.</p>
 <label class="d-block mb-3"><input type="checkbox" name="enforce_file_attributes" value="1" checked> Unix-Dateiattribute erzwingen (Besitzer/Gruppe sowie 0640/0750 prüfen und setzen).</label>

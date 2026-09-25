@@ -6,8 +6,9 @@ use O8\Core\{Config,Runtime,Database};
 use O8\Install\Migrator;
 try {
     umask(0007);
-    $root=dirname(__DIR__); $runtime=new Runtime($root.'/storage/system');
-    $command=$argv[1]??'help';
+    $root=dirname(__DIR__); $command=$argv[1]??'help';
+    if ($command==='token' && function_exists('posix_geteuid') && posix_geteuid()===0) throw new RuntimeException('Einrichtungscode nicht als root erzeugen. Als Benutzer des Web-PHP ausführen, auf Debian/Apache üblicherweise: sudo -u www-data php bin/setup.php token');
+    $runtime=new Runtime($root.'/storage/system');
     if ($command==='token') {
         echo "Einrichtungscode (60 Minuten gültig; nicht veröffentlichen):\n".$runtime->issueSetupToken()."\n";
     } elseif ($command==='status' || $command==='upgrade') {
@@ -18,7 +19,7 @@ try {
         if ($command==='upgrade') $migrator->upgrade($runtime->identity());
         echo 'Datenbank erreichbar. '.($migrator->installed($runtime->identity())?'Installation abgeschlossen.':'Webinstallation ausstehend.')."\n";
     } else {
-        echo "php bin/setup.php token   – lokalen Nachweis für Webinstallation/Erstlogin erzeugen\nphp bin/setup.php status  – Datenbank und Installationsstatus prüfen\nphp bin/setup.php upgrade – ausstehende Schemaaktualisierungen anwenden (keine Neuinstallation)\n";
+        echo "sudo -u www-data php bin/setup.php token   – lokalen Nachweis für Webinstallation/Erstlogin als Web-PHP-Benutzer erzeugen\nphp bin/setup.php status                    – Datenbank und Installationsstatus prüfen\nphp bin/setup.php upgrade                   – ausstehende Schemaaktualisierungen anwenden (keine Neuinstallation)\n";
     }
 } catch (Throwable $error) {
     // PDO errors can contain connection details; never print those.
