@@ -16,7 +16,7 @@ const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;',
 const dateLabel = value => /^\d{4}-\d{2}-\d{2}$/.test(String(value ?? '')) ? `${value.slice(8,10)}.${value.slice(5,7)}.${value.slice(0,4)}` : (value || tr('noDate'));
 const grossLabel = doc => doc.gross_amount === null || doc.gross_amount === undefined ? '' : new Intl.NumberFormat('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(doc.gross_amount)) + ' ' + doc.currency;
 const state = { scope: 'inbox', localScope: 'inbox', searchMode: 'global', page: 1, document: null, meta: null, filteredFolderCounts: null, filteredInboxCount: null, filteredAllCount: null, filteredTrashCount: null, dirty: false, querySequence: 0, documentSequence: 0, lastQuerySearch: false, selected: new Set(), inboundSelected: new Set(), rows: [] };
-let picker, bulkPicker, invoiceEditor, layout, preferences = { widths: [18,27,29,26], mode: 'system', theme: structuredClone(DEFAULT_THEME) }, pending = 0, waitTimer, writing = false, suppressWaiting = false;
+let picker, bulkPicker, invoiceEditor, layout, preferences = { widths: [18,27,29,26], mode: 'system', pageSize:50, theme: structuredClone(DEFAULT_THEME) }, pending = 0, waitTimer, writing = false, suppressWaiting = false;
 let collapsedFolderIds=new Set(), preferenceQueue=Promise.resolve();
 let noticeTimer, autoSearchTimer, sourcePollTimer;
 let searchFlashTimer;
@@ -95,6 +95,7 @@ async function metadata(initial = false) {
     if ($('ownerFilter')) { const selected = $('ownerFilter').value; $('ownerFilter').innerHTML = options(state.meta.users, searchTr('allUsers')); $('ownerFilter').value = selected; }
     if (initial) {
         preferences = state.meta.preferences; preferences.theme = normalizeTheme(preferences.theme || {mode:preferences.mode}); preferences.mode = preferences.theme.mode;
+        preferences.pageSize=Number(preferences.pageSize)||50; syncPageSizeControls(preferences.pageSize);
         const validFolderIds=new Set(state.meta.folders.map(folder=>String(folder.id)));
         collapsedFolderIds=new Set((preferences.collapsedFolders||[]).map(String).filter(id=>validFolderIds.has(id)));
         preferences.collapsedFolders=[...collapsedFolderIds].map(Number);
@@ -112,6 +113,18 @@ async function savePreferences() {
     preferenceQueue=preferenceQueue.catch(()=>{}).then(()=>api('preferences',{preferences:snapshot},true));
     try { await preferenceQueue; }
     catch (problem) { error(new Error('Anzeigeeinstellungen nicht gespeichert: ' + problem.message)); }
+}
+function syncPageSizeControls(value=preferences.pageSize||50) {
+    const size=String(value); $('pageSizeSelect').value=size; $('searchForm').elements.size.value=size;
+}
+async function changePageSize(value) {
+    const next=Number(value),current=Number(preferences.pageSize||50);
+    if (![10,25,50,100,250,500,1000].includes(next)) { syncPageSizeControls(current); return; }
+    if (next===current) { syncPageSizeControls(current); return; }
+    if (!(await discard())) { syncPageSizeControls(current); return; }
+    if (next>100 && !(await confirmDialog(clientTr('largePageSizeTitle'),clientTr('largePageSizeMessage',{count:next}),clientTr('largePageSizeAction')))) { syncPageSizeControls(current); return; }
+    state.dirty=false; preferences.pageSize=next; syncPageSizeControls(next); state.page=1;
+    await savePreferences(); await search();
 }
 function folders() {
     const linked = new Set((state.document?.folders || []).map(String));
@@ -729,9 +742,11 @@ queryInput.addEventListener('input',event => {
     }, 300);
 });
 $('searchForm').addEventListener('submit',async event => { event.preventDefault(); await runSearchFromForm(); });
-$('resetSearch').addEventListener('click',async () => { cancelAutoSearch(); if (await discard()) { $('searchForm').reset(); state.dirty = false; state.page = 1; state.scope = state.localScope; search(); } });
+$('resetSearch').addEventListener('click',async () => { cancelAutoSearch(); if (await discard()) { $('searchForm').reset(); syncPageSizeControls(); state.dirty = false; state.page = 1; state.scope = state.localScope; search(); } });
 $('previousResults').addEventListener('click',async () => { if (await discard()) { state.dirty = false; --state.page; search(); } });
 $('nextResults').addEventListener('click',async () => { if (await discard()) { state.dirty = false; ++state.page; search(); } });
+$('pageSizeSelect').addEventListener('change',event=>changePageSize(event.currentTarget.value));
+$('searchForm').elements.size.addEventListener('change',event=>changePageSize(event.currentTarget.value));
 $('resetColumns').addEventListener('click',() => layout?.reset());
 $('themeToggle').addEventListener('click',() => { document.querySelector('.workspace-menu').open = false; preferences.theme = normalizeTheme(preferences.theme); preferences.theme.mode = document.documentElement.dataset.bsTheme === 'dark' ? 'light' : 'dark'; preferences.mode = preferences.theme.mode; theme(); if (adminOverlay.classList.contains('show')) syncOverlayTheme(); savePreferences(); });
 const adminOverlay = $('adminOverlay');

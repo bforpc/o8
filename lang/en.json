@@ -325,6 +325,7 @@
       ,"dateOldest": "Date: oldest first"
       ,"titleAZ": "Title A–Z"
       ,"recordCount": "Records"
+      ,"pageSize": "Per page"
       ,"accounts": "Accounts"
       ,"includeStatus": "Include status"
       ,"includeExpired": "Include expired"
@@ -601,6 +602,9 @@
       "aiJobIncomplete": "The manual AI job could not be completed.",
       "aiProcessingDocument": "AI is analysing: {name} …",
       "aiProgressCounts": "{done} of {total} completed · {queued} queued · {running} in progress · {failed} failed.",
+      "largePageSizeTitle": "Show many documents per page?",
+      "largePageSizeMessage": "This will load {count} documents per page. With many results, display and processing may take longer.",
+      "largePageSizeAction": "Show anyway",
       "aiProgressBackgroundHint": "You can close this window. Processing will continue while this browser page stays open. Reloading, leaving the page, or closing the tab may pause documents that are still waiting.",
       "aiErrorUnknown": "AI analysis failed (error code: {code}).",
       "aiSidecarWithFailedRun": "JSON data is present, but the latest AI run failed.",

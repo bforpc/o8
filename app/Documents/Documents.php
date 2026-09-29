@@ -324,7 +324,7 @@ final class Documents
         if (($input['tag']??'')!=='' && ($input['tag']??'')===($input['notTag']??'')) throw new \RuntimeException('Derselbe Tag kann nicht zugleich verlangt und ausgeschlossen werden.');
         $sort=['newest'=>'d.document_date DESC,d.id DESC','oldest'=>'d.document_date ASC,d.id ASC','added'=>'d.created_at DESC,d.id DESC','title'=>'d.title ASC,d.id ASC'][(string)($input['sort']??'newest')]??null;
         if (!$sort) throw new \RuntimeException('Ungültige Sortierung.');
-        $size=(int)($input['size']??50); if (!in_array($size,[10,25,50,100,250],true)) throw new \RuntimeException('Ungültige Seitengröße.');
+        $size=(int)($input['size']??50); if (!in_array($size,[10,25,50,100,250,500,1000],true)) throw new \RuntimeException('Ungültige Seitengröße.');
         // Count the fully filtered set first. "Latest N" is deliberately applied only afterwards.
         $s=$this->db->prepare("SELECT COUNT(*) FROM documents d WHERE $where"); $s->execute($params); $matchingTotal=(int)$s->fetchColumn();
         $total=$latest===null?$matchingTotal:min($matchingTotal,$latest);
@@ -795,6 +795,10 @@ final class Documents
     {
         (new Access($this->db))->tenant($actor);
         if ($input!==null) {
+            $storedPreferences=$this->preferences($actor);
+            $pageSize=$input['pageSize']??$storedPreferences['pageSize'];
+            if (!(is_int($pageSize) || (is_string($pageSize) && ctype_digit($pageSize))) || !in_array((int)$pageSize,[10,25,50,100,250,500,1000],true)) throw new \RuntimeException('Ungültige Seitengröße.');
+            $pageSize=(int)$pageSize;
             $widths=$input['widths']??[]; $mode=$input['mode']??'system';
             if (!is_array($widths) || count($widths)!==4 || count(array_filter($widths,fn($n)=>is_numeric($n) && $n>=8 && $n<=65))!==4 || abs(array_sum($widths)-100)>.1 || !in_array($mode,['system','light','dark'],true)) throw new \RuntimeException('Ungültige Anzeigeeinstellungen.');
             $collapsedInput=$input['collapsedFolders']??[];
@@ -818,13 +822,14 @@ final class Documents
                 foreach ($validModes as $themeMode) foreach (['accent','background','surface'] as $color) if (!is_string($theme[$themeMode][$color]??null) || !preg_match('/^#[0-9a-f]{6}$/i',$theme[$themeMode][$color])) throw new \RuntimeException('Ungültige Darstellungsfarbe.');
                 $theme['fontSize']=(int)$theme['fontSize'];
             }
-            $this->transaction($actor,function() use($actor,$widths,$mode,$theme,$collapsedFolders):void {
-                $value=['widths'=>$widths,'mode'=>$mode,'collapsedFolders'=>$collapsedFolders]; if ($theme!==null) $value['theme']=$theme;
+            $this->transaction($actor,function() use($actor,$widths,$mode,$theme,$collapsedFolders,$pageSize):void {
+                $value=['widths'=>$widths,'mode'=>$mode,'collapsedFolders'=>$collapsedFolders,'pageSize'=>$pageSize]; if ($theme!==null) $value['theme']=$theme;
                 $s=$this->db->prepare("INSERT INTO user_settings (tenant_id,user_id,setting_key,value_json) VALUES (?,?,'workspace',?) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json)"); $s->execute([$actor->tenantId(),$actor->id(),json_encode($value,JSON_THROW_ON_ERROR)]);
             });
         }
         $s=$this->db->prepare("SELECT value_json FROM user_settings WHERE tenant_id=? AND user_id=? AND setting_key='workspace'"); $s->execute([$actor->tenantId(),$actor->id()]);
         $result=json_decode($s->fetchColumn()?:'{}',true)?:[]; $result['widths']=$result['widths']??[18,27,29,26]; $result['mode']=$result['mode']??'system'; $result['collapsedFolders']=is_array($result['collapsedFolders']??null)?array_values(array_filter($result['collapsedFolders'],static fn($id):bool=>is_int($id)&&$id>0)):[];
+        $pageSize=(int)($result['pageSize']??50); $result['pageSize']=in_array($pageSize,[10,25,50,100,250,500,1000],true)?$pageSize:50;
         $result['theme']=$result['theme']??['mode'=>$result['mode'],'density'=>'comfortable','fontFamily'=>'system','fontSize'=>125,'light'=>['accent'=>'#326d62','background'=>'#f3f4f0','surface'=>'#ffffff'],'dark'=>['accent'=>'#8fc6b2','background'=>'#141b1a','surface'=>'#1d2725']];
         return $result;
     }

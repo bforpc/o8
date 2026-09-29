@@ -325,6 +325,7 @@
       ,"dateOldest": "Datum: älteste zuerst"
       ,"titleAZ": "Titel A–Z"
       ,"recordCount": "Datensätze"
+      ,"pageSize": "Pro Seite"
       ,"accounts": "Konten"
       ,"includeStatus": "Status einschließen"
       ,"includeExpired": "Auch abgelaufene"
@@ -610,6 +611,9 @@
       "aiJobIncomplete": "Manueller KI-Auftrag konnte nicht vollständig abgeschlossen werden.",
       "aiProcessingDocument": "KI analysiert gerade: {name} …",
       "aiProgressCounts": "{done} von {total} erledigt · {queued} warten · {running} in Bearbeitung · {failed} fehlgeschlagen.",
+      "largePageSizeTitle": "Viele Dokumente pro Seite anzeigen?",
+      "largePageSizeMessage": "Es werden {count} Dokumente pro Seite geladen. Bei vielen Treffern kann die Anzeige und Verarbeitung länger dauern.",
+      "largePageSizeAction": "Trotzdem anzeigen",
       "aiProgressBackgroundHint": "Dieses Fenster kann geschlossen werden. Die Verarbeitung läuft weiter, solange diese Browserseite geöffnet bleibt. Beim Neuladen, Verlassen der Seite oder Schließen des Tabs können noch ausstehende Dokumente pausieren.",
       "aiErrorUnknown": "KI-Analyse fehlgeschlagen (Fehlerkennung: {code}).",
       "aiSidecarWithFailedRun": "JSON-Daten sind vorhanden, der neueste KI-Lauf ist jedoch fehlgeschlagen.",

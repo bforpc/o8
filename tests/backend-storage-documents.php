@@ -311,11 +311,12 @@ rejects(fn()=>$docs->open($a,$id),'same-size content tampering rejected by check
 $path=$target.'/'.$file['relative_path']; rename($path,$path.'.held'); symlink($path.'.held',$path);
 rejects(fn()=>$docs->open($a,$id),'file symlink rejected'); unlink($path); rename($path.'.held',$path);
 $theme=['mode'=>'dark','density'=>'compact','fontFamily'=>'serif','fontSize'=>150,'light'=>['accent'=>'#123456','background'=>'#f3f4f0','surface'=>'#ffffff'],'dark'=>['accent'=>'#abcdef','background'=>'#141b1a','surface'=>'#1d2725']];
-$docs->preferences($a,['widths'=>[20,25,30,25],'mode'=>'dark','theme'=>$theme,'collapsedFolders'=>[$outside]]);
+$docs->preferences($a,['widths'=>[20,25,30,25],'mode'=>'dark','theme'=>$theme,'collapsedFolders'=>[$outside],'pageSize'=>250]);
 $savedPreferences=$docs->preferences($a);
-check($savedPreferences['mode']==='dark' && $savedPreferences['theme']['fontFamily']==='serif' && $savedPreferences['collapsedFolders']===[$outside] && $docs->preferences($u)['mode']==='system','appearance, colors, folder expansion and widths are user scoped and persistent');
+check($savedPreferences['mode']==='dark' && $savedPreferences['theme']['fontFamily']==='serif' && $savedPreferences['collapsedFolders']===[$outside] && $savedPreferences['pageSize']===250 && $docs->preferences($u)['mode']==='system','appearance, colors, page size, folder expansion and widths are user scoped and persistent');
 rejects(fn()=>$docs->preferences($b,['widths'=>[25,25,25,25],'mode'=>'system','collapsedFolders'=>[$outside]]),'folder expansion preferences cannot reference another tenant folders');
 rejects(fn()=>$docs->preferences($a,['widths'=>[1,1,1,1],'mode'=>'dark']),'invalid layout rejected');
+rejects(fn()=>$docs->preferences($a,['widths'=>[25,25,25,25],'mode'=>'dark','pageSize'=>2000]),'unsupported saved page size rejected');
 $ownRow=$docs->get($u,$own);
 $ownInput=['title'=>'Own tagged document','tags'=>[$tag],'newTags'=>['Neue Kategorie']];
 $docs->save($u,$own,(int)$ownRow['revision'],$ownInput);
