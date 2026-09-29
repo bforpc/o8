@@ -93,7 +93,7 @@ export class InboundBatchDialog {
         const stop=this.form.querySelector('[data-batch-stop]'); stop.disabled=false; stop.hidden=false;
         document.getElementById('batchProgressWrap').hidden=false; document.getElementById('batchError').textContent='';
         const progress=document.getElementById('batchProgress'), summary=document.getElementById('batchProgressText'); progress.max=rows.length; progress.value=0;
-        let done=0,failed=0;
+        let done=0,failed=0,closeAfterSuccess=false;
         try {
             for(const row of rows) {
                 if(this.stopping)break;
@@ -108,12 +108,14 @@ export class InboundBatchDialog {
             }
             summary.textContent=t('batchDone',{done,failed,remaining:rows.length-done-failed});
             await this.refresh();
+            closeAfterSuccess=done===rows.length&&failed===0&&!this.stopping;
         } catch(error) {document.getElementById('batchError').textContent=error.message;}
         finally {
             this.running=false; stop.hidden=true;
             this.form.querySelectorAll('input,select,button').forEach(x=>x.disabled=false);
             for(const row of this.rows) {const box=this.form.querySelector(`[data-batch-select="${row.id}"]`);box.disabled=!row.batchEligible||Boolean(row.done);if(row.done)box.checked=false;}
             this.update();
+            if(closeAfterSuccess)bootstrap.Modal.getOrCreateInstance(this.modal).hide();
         }
     }
 }

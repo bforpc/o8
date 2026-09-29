@@ -7,7 +7,7 @@ use O8\Install\Migrator;
 use O8\Admin\Administration;
 use O8\Storage\Storage;
 use O8\Documents\Documents;
-use O8\Inbound\{InboundScanner,InboundWorkbench,InboundAcceptance};
+use O8\Inbound\{InboundScanner,InboundWorkbench,InboundAcceptance,InboundUploads};
 if (PHP_SAPI!=='cli' || !preg_match('#^/tmp/o8-m2-test\.[A-Za-z0-9]+/db\.sock$#D',$argv[1]??'')) exit("Isolated test socket required.\n");
 $db=new PDO('mysql:unix_socket='.$argv[1].';charset=utf8mb4','root','',[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC,PDO::ATTR_EMULATE_PREPARES=>false]);
 $db->exec("SET time_zone = '+00:00'"); // Match the application's Database::connect session.
@@ -212,5 +212,15 @@ check((int)$db->query('SELECT COUNT(*) FROM documents')->fetchColumn()===$before
 $manualDocument=$accept->accept($a,(int)$manualItem['id'],(int)$manualItem['revision'],[...$manualProposal,'invoice'=>null,'tags'=>[],'folders'=>[],'tagMode'=>'replace']);
 $manualSaved=$docs->get($a,$manualDocument);
 check($manualSaved['invoice']['mode']==='partial' && $manualSaved['invoice']['date']===null && (float)$manualSaved['invoice']['gross']===119.0,'manual acceptance keeps gross-only booking even without a document date');
+$uploads=new InboundUploads($db,$root); $uploadPath=$tmp.'/direct-upload.pdf'; $uploadBytes="%PDF-1.4\n% Direct upload return fixture\n"; file_put_contents($uploadPath,$uploadBytes);
+$draftOne=$docs->ingest($a,$uploadPath,'Direct upload.pdf','upload'); $draftTwo=$docs->ingest($a,$uploadPath,'Existing copy.pdf','upload');
+rejects(fn()=>$uploads->restoreDraft($u,$draftOne,1),'another owner cannot return a DMS upload draft to the inbox');
+$restored=$uploads->restoreDraft($a,$draftOne,1); $restoredItem=$workbench->get($a,$restored); $restoredFile=$workbench->open($a,$restored);
+try { check(stream_get_contents($restoredFile['handle'])===$uploadBytes,'restored upload bytes are readable as a managed inbox item'); } finally { fclose($restoredFile['handle']); }
+check($restoredItem['source_kind']==='upload' && $restoredItem['inventory_status']==='duplicate' && $workbench->count($a)>0,'untouched DMS upload returns to true inbox and marks an existing copy as duplicate');
+rejects(fn()=>$docs->get($a,$draftOne),'returned upload no longer remains as a DMS document');
+$editedDraft=$docs->ingest($a,$uploadPath,'Edited upload.pdf','upload'); $db->prepare('UPDATE documents SET revision=revision+1 WHERE tenant_id=? AND id=?')->execute([$a->tenantId(),$editedDraft]);
+rejects(fn()=>$uploads->restoreDraft($a,$editedDraft,2),'changed upload draft cannot be automatically returned');
+check((int)$db->query('SELECT COUNT(*) FROM documents WHERE id='.(int)$editedDraft)->fetchColumn()===1,'rejected return leaves changed DMS document intact');
 echo "$checks inbound acceptance checks passed.\n";
 $db->exec('DROP DATABASE '.$name);

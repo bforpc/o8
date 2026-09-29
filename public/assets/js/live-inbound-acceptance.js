@@ -34,7 +34,7 @@ export class InboundAcceptanceDialog {
         if (this.saving) return;
         this.preview.clear();
         this.modal.querySelector('#inboundAcceptTitle').textContent=targetFolderId===null?t('acceptToDms'):t('moveFromInboxToFolder');
-        this.form.querySelector('.modal-footer [type="submit"]').textContent=targetFolderId===null?t('accept'):t('moveAction');
+        this.form.querySelector('.modal-footer [type="submit"]').textContent=t('accept');
         this.proposal=await this.api('inboundProposal',{id});
         const p=this.proposal, meta=this.metadata();
         this.invoice=p.invoiceComplete?structuredClone(p.invoice):null;

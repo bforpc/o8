@@ -35,7 +35,7 @@ final class AiProcessor
         return ['json'=>json_encode($inspection['data'],JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_PRETTY_PRINT),'data'=>$inspection['data'],'matchedTags'=>$inspection['matchedTags'],'ignoredTags'=>$inspection['ignoredTags']];
     }
 
-    public function store(Actor $actor,int $inboundId,string $json): void
+    public function store(Actor $actor,int $inboundId,string $json,int $expectedRevision): void
     {
         $storage=new Storage($this->db,$this->root); $location=$storage->location($actor); if (!$location) throw new \RuntimeException('storage_missing'); [, $target]=$storage->paths($location);
         $directory=$target.'/inbound'; if (!is_dir($directory) && !@mkdir($directory,0750)) throw new \RuntimeException('storage_unavailable'); if (is_link($directory) || realpath($directory)!==$directory) throw new \RuntimeException('storage_unavailable'); $storage->permissions($directory,$location,true);
@@ -47,7 +47,7 @@ final class AiProcessor
             $stmt=$this->db->prepare("SELECT relative_path FROM inbound_files WHERE tenant_id=? AND inbound_item_id=? AND role='json' FOR UPDATE"); $stmt->execute([$actor->tenantId(),$inboundId]); $old=$stmt->fetchColumn();
             $name=pathinfo((string)$this->db->query('SELECT original_name FROM inbound_items WHERE tenant_id='.(int)$actor->tenantId().' AND id='.(int)$inboundId)->fetchColumn(),PATHINFO_FILENAME).'.json';
             $stmt=$this->db->prepare("INSERT INTO inbound_files (tenant_id,inbound_item_id,role,storage_key,relative_path,original_name,mime_type,sha256,size_bytes) VALUES (?,?, 'json','main',?,?,'application/json',?,?) ON DUPLICATE KEY UPDATE relative_path=VALUES(relative_path),original_name=VALUES(original_name),sha256=VALUES(sha256),size_bytes=VALUES(size_bytes),created_at=UTC_TIMESTAMP()"); $stmt->execute([$actor->tenantId(),$inboundId,$relative,$name,$sha,strlen($json)]);
-            $stmt=$this->db->prepare("UPDATE inbound_items SET ai_status='ready',has_json_sidecar=1,json_valid=1,error_code=NULL,revision=revision+1 WHERE tenant_id=? AND id=? AND state='pending'"); $stmt->execute([$actor->tenantId(),$inboundId]); if ($stmt->rowCount()!==1) throw new \RuntimeException('inbound_changed');
+            $stmt=$this->db->prepare("UPDATE inbound_items SET ai_status='ready',has_json_sidecar=1,json_valid=1,error_code=NULL,revision=revision+1,updated_at=UTC_TIMESTAMP() WHERE tenant_id=? AND id=? AND state='pending' AND ai_status='running' AND revision=?"); $stmt->execute([$actor->tenantId(),$inboundId,$expectedRevision]); if ($stmt->rowCount()!==1) throw new \RuntimeException('inbound_changed');
             $this->db->commit();
         } catch (\Throwable $error) { if ($this->db->inTransaction()) $this->db->rollBack(); @unlink($path); throw $error; }
         if (is_string($old) && $old!==$relative && preg_match('#^inbound/[a-f0-9]{48}\.json$#D',$old)) @unlink($target.'/'.$old);

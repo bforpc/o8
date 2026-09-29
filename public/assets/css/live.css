@@ -14,6 +14,8 @@
     .workspace-page:has(#liveFilters.show) .document-workspace { flex: none; min-height: 420px; }
 }
 .workspace-tools { flex-wrap: wrap; }
+.workspace-tools .search-field { transition: background-color 120ms ease-out, border-color 120ms ease-out, box-shadow 120ms ease-out; }
+.workspace-tools.search-filter-flash .search-field { background-color: color-mix(in srgb,var(--o8-text) 30%,var(--o8-surface)); border-color: var(--o8-accent); box-shadow: 0 0 0 3px color-mix(in srgb,var(--o8-accent) 55%,transparent); }
 .search-scope-toggle { flex: none; align-self: stretch; min-width: 106px; white-space: nowrap; }
 .live-wait { position: fixed; z-index: 2000; left: 50%; top: 25%; transform: translateX(-50%); padding: 18px 25px; border-radius: 12px; background: var(--o8-surface); color: var(--o8-text); border: 1px solid var(--o8-line); box-shadow: 0 8px 40px #0003; }
 .live-wait[hidden] { display: none; }
@@ -23,8 +25,6 @@
 .source-inventory-item span { min-width: 0; }
 .source-inventory-item strong, .source-inventory-item small { display: block; overflow-wrap: anywhere; }
 .source-inventory-item small { margin-top: 2px; color: var(--o8-muted); }
-.source-retention-hint { padding: 7px 9px; border: 1px solid var(--o8-line); border-radius: 7px; background: var(--o8-tint); color: var(--o8-text); }
-.source-retention-hint.is-destructive { border-color: color-mix(in srgb,var(--bs-danger) 45%,var(--o8-line)); }
 .inbound-row { background: color-mix(in srgb,var(--o8-accent) 4%,var(--o8-surface)); }
 .inbound-row .tag { padding: 1px 5px; font-size: .5625rem; }
 .inbound-sidecar { margin-top: 12px; }
@@ -99,6 +99,7 @@
 .live-detail-booking .live-invoice-summary { padding: 0; background: transparent; border: 0; }
 .live-detail-booking .booking-overview { margin: 9px 0 0; background: transparent; }
 .live-detail-status { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 7px; }
+.live-detail-status .inbound-stage-tag { background: var(--o8-accent); border-color: var(--o8-accent); color: var(--o8-on-accent); font-weight: 750; }
 .live-detail-top .live-detail-status { margin-bottom: 0; }
 .live-detail-intro p { margin: 0 0 4px; color: var(--o8-muted); }
 .live-detail-intro .detail-label { overflow-wrap: anywhere; }

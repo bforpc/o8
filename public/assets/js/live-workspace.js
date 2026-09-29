@@ -10,18 +10,23 @@ import { choiceDialog, confirmDialog } from './dialog.js';
 const $ = id => document.getElementById(id);
 const root = $('liveApp');
 const tr = (key,values={}) => window.o8Translate ? window.o8Translate(`workspace.${key}`,values) : '';
+const clientTr = (key,values={}) => window.o8Translate ? window.o8Translate(`client.${key}`,values) : '';
 const searchTr = (key,values={}) => window.o8Translate ? window.o8Translate(`search.${key}`,values) : '';
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const dateLabel = value => /^\d{4}-\d{2}-\d{2}$/.test(String(value ?? '')) ? `${value.slice(8,10)}.${value.slice(5,7)}.${value.slice(0,4)}` : (value || tr('noDate'));
 const grossLabel = doc => doc.gross_amount === null || doc.gross_amount === undefined ? '' : new Intl.NumberFormat('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(doc.gross_amount)) + ' ' + doc.currency;
-const state = { scope: 'inbox', localScope: 'inbox', searchMode: 'global', page: 1, document: null, meta: null, filteredFolderCounts: null, filteredInboxCount: null, filteredAllCount: null, filteredTrashCount: null, dirty: false, querySequence: 0, documentSequence: 0, selected: new Set(), inboundSelected: new Set(), rows: [] };
+const state = { scope: 'inbox', localScope: 'inbox', searchMode: 'global', page: 1, document: null, meta: null, filteredFolderCounts: null, filteredInboxCount: null, filteredAllCount: null, filteredTrashCount: null, dirty: false, querySequence: 0, documentSequence: 0, lastQuerySearch: false, selected: new Set(), inboundSelected: new Set(), rows: [] };
 let picker, bulkPicker, invoiceEditor, layout, preferences = { widths: [18,27,29,26], mode: 'system', theme: structuredClone(DEFAULT_THEME) }, pending = 0, waitTimer, writing = false, suppressWaiting = false;
 let collapsedFolderIds=new Set(), preferenceQueue=Promise.resolve();
 let noticeTimer, autoSearchTimer, sourcePollTimer;
+let searchFlashTimer;
 let inboundActionItems=[];
-const aiStatusLabel = value => ({not_requested:tr('aiNotRequested'),queued:tr('aiQueued'),running:tr('aiRunning'),ready:tr('aiReady'),failed:tr('aiFailed'),completed:tr('completed')})[value] || value;
-const aiErrorLabel = value => ({text_too_short:t('textTooShort'),extract_tool_missing:t('extractToolMissing'),extract_failed:t('extractFailed'),extract_timeout:t('extractTimeout'),ai_timeout:t('aiTimeout'),ai_dns_failed:t('aiDnsFailed'),ai_tls_failed:t('aiTlsFailed'),ai_connection_failed:t('aiConnectionFailed'),ai_http_error:t('aiHttpError'),ai_response_too_large:t('aiResponseTooLarge'),invalid_ai_response:t('invalidAiResponse'),invalid_ai_json:t('invalidAiJson'),inbound_changed:t('inboundChanged'),ai_item_failed:t('aiItemFailed')})[value] || value || '';
-function error(problem) { $('liveError').textContent = problem.message || String(problem); $('liveError').hidden = false; }
+const aiStatusLabel = value => ({not_requested:tr('aiNotRequested'),queued:tr('aiQueued'),running:tr('aiRunning'),ready:tr('aiReady'),failed:tr('aiFailed'),completed:tr('completed'),cancelled:clientTr('cancelled')})[value] || value;
+const aiErrorLabel = value => {
+    const labels={text_too_short:clientTr('textTooShort'),extract_tool_missing:clientTr('extractToolMissing'),extract_failed:clientTr('extractFailed'),extract_timeout:clientTr('extractTimeout'),extract_too_large:clientTr('extractTooLarge'),ai_disabled:clientTr('aiDisabled'),curl_unavailable:clientTr('curlUnavailable'),ai_request_failed:clientTr('aiRequestFailed'),ai_timeout:clientTr('aiTimeout'),ai_dns_failed:clientTr('aiDnsFailed'),ai_tls_failed:clientTr('aiTlsFailed'),ai_connection_failed:clientTr('aiConnectionFailed'),ai_http_error:clientTr('aiHttpError'),ai_response_too_large:clientTr('aiResponseTooLarge'),invalid_ai_response:clientTr('invalidAiResponse'),invalid_ai_json:clientTr('invalidAiJson'),storage_missing:clientTr('storageMissing'),storage_unavailable:clientTr('storageUnavailable'),storage_write_failed:clientTr('storageWriteFailed'),storage_verify_failed:clientTr('storageVerifyFailed'),inbound_changed:tr('inboundChanged'),ai_item_failed:clientTr('aiItemFailed'),ai_cancelled:clientTr('aiCancelled')};
+    return labels[value] || (value ? clientTr('aiErrorUnknown',{code:value}) : '');
+};
+function error(problem) { $('liveErrorMessage').textContent = problem.message || String(problem); $('liveError').hidden = false; }
 function notice(message) {
     clearTimeout(noticeTimer);
     $('liveNotice').textContent = message;
@@ -51,7 +56,7 @@ async function api(action, input = {}, write = false) {
         const response = await fetch(url(action, write ? {} : input), { method: write ? 'POST' : 'GET', body: write ? data(input) : undefined, credentials: 'same-origin', cache: 'no-store' });
         let json;
         try { json = await response.json(); } catch { throw new Error(window.o8TranslateSource?.('Keine gültige Serverantwort. Bitte neu laden und PHP-/Uploadlimits prüfen.') || 'Keine gültige Serverantwort. Bitte neu laden und PHP-/Uploadlimits prüfen.'); }
-        if (!response.ok || !json.success) throw new Error(json.error || window.o8TranslateSource?.('Aktion fehlgeschlagen.') || 'Aktion fehlgeschlagen.');
+        if (!response.ok || !json.success) { const problem=new Error(json.error || window.o8TranslateSource?.('Aktion fehlgeschlagen.') || 'Aktion fehlgeschlagen.'); problem.code=json.code || ''; throw problem; }
         return json.data;
     } finally { busy(false); }
 }
@@ -163,6 +168,7 @@ async function search() {
         const showInbound=state.scope==='inbox' && !['dateFrom','dateTo','amountFrom','amountTo','invoiceNumbers','accountCode','documentType','tag','notTag','owner'].some(key=>input[key]) && input.resultView!=='latest';
         const [result,inbound]=await Promise.all([api('list', {...input, scope: state.scope, page: state.page, folderCounts: filtered ? '1' : ''}),showInbound?api('inboundItems',{query:input.query || ''}):Promise.resolve([])]);
         if (sequence !== state.querySequence) return;
+        state.lastQuerySearch=Boolean(input.query?.trim());
         state.page = result.page;
         state.filteredFolderCounts = null;
         state.filteredInboxCount = null;
@@ -233,9 +239,10 @@ async function selectInbound(id,force=false) {
         $('downloadFile').href=url('inboundFile',{id,download:1}); $('downloadFile').hidden=false;
         let json=item.json_text; if (json) try { json=JSON.stringify(JSON.parse(json),null,2); } catch { /* Ungültiges JSON bleibt als Rohtext sichtbar. */ }
         const clipped=(value,limit=100000)=>value&&value.length>limit?value.slice(0,limit)+'\n… '+tr('previewClipped')+' …':value;
-        const history=(item.acceptance_status==='blocked'?'<div class="alert alert-warning small" role="status"><strong>Automatische Übernahme: Prüfung nötig</strong><br>'+esc(item.acceptance_message)+'</div>':'')+(Array.isArray(item.ai_history)&&item.ai_history.length?'<section class="inbound-ai-history o8-info-group o8-info-group--soft"><span class="detail-label">KI-VERLAUF</span><ol>'+item.ai_history.map(run=>'<li><strong>'+esc(aiStatusLabel(run.status))+'</strong><span>'+esc(dateLabel(String(run.created_at).slice(0,10)))+' · '+esc(run.requested_by_name)+(run.error_code?' · '+esc(aiErrorLabel(run.error_code)):'')+'</span></li>').join('')+'</ol></section>':'<section class="o8-info-group o8-info-group--soft"><span class="detail-label">KI-VERLAUF</span><p class="live-detail-empty">Noch kein KI-Lauf vorhanden.</p></section>');
+        const historyNote=json!==null&&item.ai_history?.[0]?.status==='failed'?'<p class="small text-body-secondary">'+esc(clientTr('aiSidecarWithFailedRun'))+'</p>':'';
+        const history=(item.acceptance_status==='blocked'?'<div class="alert alert-warning small" role="status"><strong>Automatische Übernahme: Prüfung nötig</strong><br>'+esc(item.acceptance_message)+'</div>':'')+(Array.isArray(item.ai_history)&&item.ai_history.length?'<section class="inbound-ai-history o8-info-group o8-info-group--soft"><span class="detail-label">KI-VERLAUF</span>'+historyNote+'<ol>'+item.ai_history.map(run=>'<li><strong>'+esc(aiStatusLabel(run.status))+'</strong><span>'+esc(dateLabel(String(run.created_at).slice(0,10)))+' · '+esc(run.requested_by_name)+(run.error_code?' · '+esc(aiErrorLabel(run.error_code)):'')+'</span></li>').join('')+'</ol></section>':'<section class="o8-info-group o8-info-group--soft"><span class="detail-label">KI-VERLAUF</span><p class="live-detail-empty">Noch kein KI-Lauf vorhanden.</p></section>');
         const aiTags=json!==null?'<section class="live-detail-tags o8-info-group o8-info-group--soft"><span class="detail-label">KI-TAGVORSCHLÄGE</span><div class="tag-list">'+(item.ai_tag_matches.length?item.ai_tag_matches.map(tag=>'<span class="tag">'+esc(tag.name)+'</span>').join(''):'<span class="live-detail-empty">Keine vorhandenen Tags erkannt</span>')+'</div>'+(item.ai_tag_ignored.length?'<p class="small text-body-secondary mt-1 mb-0">Ignoriert (nicht im aktiven Katalog): '+esc(item.ai_tag_ignored.join(', '))+'</p>':'')+'</section>':'';
-        $('documentDetails').innerHTML='<section class="live-detail-intro"><div class="live-detail-status"><span class="tag">'+esc(item.source_kind.toUpperCase())+'</span><span class="tag">'+esc(({pending:'Bereit',duplicate:'Duplikat',invalid:'Ungültig'})[item.inventory_status]||item.inventory_status)+'</span><span class="tag">'+esc(aiStatusLabel(item.ai_status))+'</span></div><h2>'+esc(item.original_name)+'</h2><p>'+esc(item.source_name)+'</p></section><div class="live-detail-facts"><div><span class="detail-label">BESITZER</span><span class="detail-value">'+esc(item.owner_name)+'</span></div><div><span class="detail-label">GEFUNDEN</span><span class="detail-value">'+esc(dateLabel(String(item.discovered_at).slice(0,10)))+'</span></div><div><span class="detail-label">DATEITYP</span><span class="detail-value">'+esc(item.mime_type)+'</span></div><div><span class="detail-label">GRÖSSE</span><span class="detail-value">'+Math.ceil(Number(item.size_bytes)/1024)+' KiB</span></div></div>'+(json!==null?'<section class="inbound-sidecar"><span class="detail-label">KI-/JSON-DATEN</span><pre>'+esc(clipped(json))+'</pre></section>':'<p class="live-detail-empty">Keine JSON-Daten vorhanden.</p>')+aiTags+(item.text_content!==null?'<section class="inbound-sidecar"><span class="detail-label">OCR-/TEXTDATEN</span><pre>'+esc(clipped(item.text_content))+'</pre></section>':'')+history+'<div class="live-detail-actions"><button class="btn btn-primary" type="button" id="runInboundAi" '+(!state.meta.aiReady?'disabled':'')+'>'+(item.active_ai_job_id?'KI-Verarbeitung fortsetzen …':item.ai_status==='ready'||item.ai_status==='failed'?'KI erneut ausführen …':'Mit KI analysieren …')+'</button><button class="btn btn-outline-danger" type="button" id="deleteInboundItem">Aus Eingang löschen …</button></div>';
+        $('documentDetails').innerHTML='<section class="live-detail-intro"><div class="live-detail-status"><span class="tag inbound-stage-tag">'+esc(tr('inboundNotAccepted'))+'</span><span class="tag">'+esc(item.source_kind.toUpperCase())+'</span><span class="tag">'+esc(({pending:'Bereit',duplicate:'Duplikat',invalid:'Ungültig'})[item.inventory_status]||item.inventory_status)+'</span><span class="tag">'+esc(aiStatusLabel(item.ai_status))+'</span></div><h2>'+esc(item.original_name)+'</h2><p>'+esc(item.source_name)+'</p></section><div class="live-detail-actions"><button class="btn btn-primary" type="button" id="runInboundAi" '+(!state.meta.aiReady?'disabled':'')+'>'+(item.active_ai_job_id?'KI-Verarbeitung fortsetzen …':item.ai_status==='ready'||item.ai_status==='failed'?'KI erneut ausführen …':'Mit KI analysieren …')+'</button><button class="btn btn-outline-danger" type="button" id="deleteInboundItem">Aus Eingang löschen …</button></div><div class="live-detail-facts"><div><span class="detail-label">BESITZER</span><span class="detail-value">'+esc(item.owner_name)+'</span></div><div><span class="detail-label">GEFUNDEN</span><span class="detail-value">'+esc(dateLabel(String(item.discovered_at).slice(0,10)))+'</span></div><div><span class="detail-label">DATEITYP</span><span class="detail-value">'+esc(item.mime_type)+'</span></div><div><span class="detail-label">GRÖSSE</span><span class="detail-value">'+Math.ceil(Number(item.size_bytes)/1024)+' KiB</span></div></div>'+(json!==null?'<section class="inbound-sidecar"><span class="detail-label">KI-/JSON-DATEN</span><pre>'+esc(clipped(json))+'</pre></section>':'<p class="live-detail-empty">Keine JSON-Daten vorhanden.</p>')+aiTags+(item.text_content!==null?'<section class="inbound-sidecar"><span class="detail-label">OCR-/TEXTDATEN</span><pre>'+esc(clipped(item.text_content))+'</pre></section>':'')+history;
         const detailRoot=$('documentDetails');
         if (json!==null) {
             const section=detailRoot.querySelector('.inbound-sidecar');
@@ -245,7 +252,7 @@ async function selectInbound(id,force=false) {
         }
         const inboundHead=document.createElement('section'); inboundHead.className='o8-info-group o8-info-group--head inbound-detail-head';
         detailRoot.querySelector('.live-detail-intro').before(inboundHead);
-        inboundHead.append(detailRoot.querySelector('.live-detail-intro'),detailRoot.querySelector('.live-detail-facts'));
+        inboundHead.append(detailRoot.querySelector('.live-detail-intro'),detailRoot.querySelector('.live-detail-actions'),detailRoot.querySelector('.live-detail-facts'));
         detailRoot.querySelectorAll('.inbound-sidecar').forEach((section,index)=>section.classList.add('o8-info-group',index?'o8-info-group--soft':'o8-info-group--strong'));
         detailRoot.querySelector('.live-detail-actions').classList.add('o8-info-group','o8-info-group--soft');
         const accept=document.createElement('button'); accept.type='button'; accept.className='btn btn-primary'; accept.id='acceptInboundItem'; accept.textContent='In das DMS übernehmen …'; accept.disabled=Boolean(item.active_ai_job_id)||['queued','running'].includes(item.ai_status);
@@ -273,12 +280,12 @@ function details() {
     const tagView = '<section class="live-detail-tags o8-info-group o8-info-group--soft"><span class="detail-label">TAGS</span><div class="tag-list">' + (documentTags.length ? documentTags.map(name => '<span class="tag">' + esc(name) + '</span>').join('') : '<span class="live-detail-empty">Keine Tags</span>') + '</div></section>';
     const invoice = '<section class="live-invoice-summary"><div><span class="detail-label">BUCHUNGSDATEN</span><strong>' + (d.invoice ? (d.invoice.gross!==null ? esc(new Intl.NumberFormat('de-DE',{style:'currency',currency:d.invoice.currency,currencyDisplay:'code'}).format(Number(d.invoice.gross))) : 'Betrag noch unvollständig') + (d.invoice.mode==='partial'?' · unvollständig':'') : 'Noch keine Buchungsdaten') + '</strong></div><button class="btn btn-sm btn-surface" type="button" data-invoice>Buchungsdaten ' + (d.invoice ? 'bearbeiten' : 'erfassen') + '</button></section>';
     const actions = d.deleted_at ? '<button class="btn btn-primary btn-sm" data-status="restore">Wiederherstellen</button>' :
-        '<button class="btn btn-surface btn-sm" type="button" id="documentEditToggle" aria-controls="documentEditor" aria-expanded="false"><svg class="icon small-icon" aria-hidden="true"><use href="#i-settings"/></svg> Bearbeiten</button>' + (Number(d.in_inbox) ? '<button class="btn btn-surface btn-sm" data-status="accept">Übernehmen</button>' : '') + '<button class="btn btn-outline-danger btn-sm" data-status="trash">Papierkorb</button>';
+        '<button class="btn btn-surface btn-sm" type="button" id="documentEditToggle" aria-controls="documentEditor" aria-expanded="false"><svg class="icon small-icon" aria-hidden="true"><use href="#i-settings"/></svg> Bearbeiten</button>' + (Number(d.in_inbox) ? '<button class="btn btn-surface btn-sm" data-status="accept">Übernehmen</button>' + (d.source_type==='upload' ? '<button class="btn btn-outline-primary btn-sm" type="button" id="returnUploadToInbox">'+esc(tr('returnUploadToInbox'))+'</button>' : '') : '') + '<button class="btn btn-outline-danger btn-sm" data-status="trash">Papierkorb</button>';
     const editor = d.deleted_at ? '' :
         '<section class="live-detail-disclosure live-detail-editor" id="documentEditor" hidden><form id="documentForm"><div class="live-detail-edit-grid">' + field('title','Titel',d.title) + field('sender','Absender',d.sender) + field('reference','Referenz',d.reference) + field('date','Dokumentdatum',d.document_date,'date') + '</div>' +
         '<label>Notiz<textarea class="form-control" name="memo" maxlength="10000" rows="3">' + esc(d.memo) + '</textarea></label><div class="live-detail-flags"><label><input type="checkbox" name="expired" value="1" ' + (Number(d.expired) ? 'checked' : '') + '> Abgelaufen</label><label><input type="checkbox" name="notSearchable" value="1" ' + (!Number(d.searchable) ? 'checked' : '') + '> Nicht suchbar</label></div><p>Tags</p><div id="liveTagPicker"></div><div><button class="btn btn-primary btn-sm mt-2">Speichern' + (Number(d.in_inbox) ? ' & übernehmen' : '') + '</button></div></form><div class="live-detail-link-editor"><label class="d-block">In Ordner verlinken<select id="linkFolder" class="form-select">' + options(state.meta.folders,'Ordner wählen') + '</select></label><button class="btn btn-surface btn-sm mt-2" id="linkButton">Verlinken …</button></div></section>';
     const foldersView = '<section class="live-detail-folders o8-info-group"><h3><svg class="icon small-icon" aria-hidden="true"><use href="#i-folder"/></svg> Ordnerverknüpfungen <span class="count">' + d.folders.length + '</span></h3><div class="live-detail-folder-list">' + d.folders.map(id => { const folder = state.meta.folders.find(x => Number(x.id) === id); return folder ? '<div class="folder-chip"><span>' + esc(folderPath(folder,'/')) + '</span>' + (!d.deleted_at ? '<button type="button" data-unlink="' + id + '" aria-label="Verknüpfung entfernen">×</button>' : '') + '</div>' : ''; }).join('') + '</div></section>';
-    $('documentDetails').innerHTML = '<section class="live-detail-head o8-info-group o8-info-group--head"><div class="live-detail-intro"><div class="live-detail-top"><div class="live-detail-status"><span class="tag">' + esc(type) + '</span>' + (Number(d.expired) ? '<span class="tag">Abgelaufen</span>' : '') + (!Number(d.searchable) ? '<span class="tag">Nicht suchbar</span>' : '') + '</div><div class="live-detail-actions">' + actions + '</div></div><h2>' + esc(d.title) + '</h2><p>' + esc(d.sender || 'Ohne Absender') + '</p><span class="detail-label">' + esc(d.original_name) + ' · ' + Math.ceil(Number(d.size_bytes)/1024) + ' KiB</span></div>' +
+    $('documentDetails').innerHTML = '<section class="live-detail-head o8-info-group o8-info-group--head"><div class="live-detail-intro"><div class="live-detail-top"><div class="live-detail-status"><span class="tag">' + esc(type) + '</span>' + (Number(d.in_inbox) ? '<span class="tag">'+esc(tr('dmsInboxDraft'))+'</span>' : '') + (Number(d.expired) ? '<span class="tag">Abgelaufen</span>' : '') + (!Number(d.searchable) ? '<span class="tag">Nicht suchbar</span>' : '') + '</div><div class="live-detail-actions">' + actions + '</div></div><h2>' + esc(d.title) + '</h2><p>' + esc(d.sender || 'Ohne Absender') + '</p><span class="detail-label">' + esc(d.original_name) + ' · ' + Math.ceil(Number(d.size_bytes)/1024) + ' KiB</span></div>' +
         '<div class="live-detail-facts">' + fact('Dokumentdatum',dateLabel(d.document_date)) + fact('Quelle',source) + fact('Referenz',d.reference) + fact('Besitzer',owner) + '</div></section>' +
         editor + tagView + foldersView + '<section class="live-detail-booking o8-info-group o8-info-group--strong">' + invoice + savedBookingSummary(d,state.meta.accounting.accounts) + '</section>';
     if (!d.deleted_at) {
@@ -294,6 +301,13 @@ function details() {
             if (await write('save',{...values,id:d.id,revision:d.revision},'Dokument gespeichert und in die Ablage übernommen.')) { state.dirty = false; await metadata(); await search(); }
         });
     }
+    $('returnUploadToInbox')?.addEventListener('click',async()=>{
+        if (!(await confirmDialog(tr('returnUploadToInbox'),tr('returnUploadToInboxConfirm'),tr('returnUploadToInbox'),false))) return;
+        try {
+            const result=await api('inboundRestore',{id:d.id,revision:d.revision},true);
+            state.dirty=false; await metadata(); await search(); await selectInbound(result.id,true); notice(tr('returnedToInbox'));
+        } catch(problem) { error(problem); }
+    });
 }
 async function link(folder, remove = false, id = state.document?.id, confirmed = false) {
     if (!id || !folder || (confirmed && (writing || state.dirty)) || (!confirmed && !(await discard()))) return;
@@ -313,6 +327,7 @@ $('folderNavigationDesktop').addEventListener('click',async event => {
     }
     const button = event.target.closest('[data-scope]');
     if (button && await discard()) {
+        flashActiveSearch();
         state.dirty = false; state.localScope = button.dataset.scope; state.page = 1;
         state.scope = hasActiveSearch() && state.searchMode === 'global' ? 'all' : state.localScope;
         clearDocument(); await search();
@@ -321,6 +336,16 @@ $('folderNavigationDesktop').addEventListener('click',async event => {
     if (edit) openFolder(state.meta.folders.find(x => Number(x.id) === Number(edit.dataset.editFolder)));
     if (event.target.closest('[data-empty-trash]')) emptyTrash();
 });
+function flashActiveSearch() {
+    const input=$('searchForm').elements.query;
+    const tools=$('searchForm').querySelector('.workspace-tools');
+    if (!state.lastQuerySearch || !input.value.trim() || !tools) return;
+    clearTimeout(searchFlashTimer);
+    tools.classList.remove('search-filter-flash');
+    void tools.offsetWidth;
+    tools.classList.add('search-filter-flash');
+    searchFlashTimer=setTimeout(()=>tools.classList.remove('search-filter-flash'),500);
+}
 async function emptyTrash() {
     if (!(await discard())) return;
     try {
@@ -397,10 +422,11 @@ function bulkFields() {
 async function openBulkEditor() {
     if ((!state.selected.size && !state.inboundSelected.size) || !(await discard())) return;
     if (state.inboundSelected.size) {
-        if (state.selected.size) { error(new Error('DMS-Dokumente und noch nicht übernommene Eingangselemente bitte getrennt auswählen.')); return; }
+        $('inboundActionWarning').hidden=!state.selected.size;
+        $('inboundActionWarningText').textContent=state.selected.size?tr('mixedInboundSelection',{total:state.selected.size+state.inboundSelected.size,inbound:state.inboundSelected.size,documents:state.selected.size}):'';
         const revisions=new Map(state.rows.filter(row=>row._inbound).map(row=>[Number(row.id),Number(row.revision)]));
         inboundActionItems=[...state.inboundSelected].map(id=>({id,revision:revisions.get(id)}));
-        $('inboundActionCount').textContent=`${inboundActionItems.length} Eingangselement(e) ausgewählt.`; $('inboundAiStartSelected').disabled=!state.meta.aiReady; $('inboundActionError').textContent=state.meta.aiReady?'':'Externe KI ist noch nicht durch einen Mandanten-Admin eingerichtet.'; bootstrap.Modal.getOrCreateInstance($('inboundActionModal')).show(); return;
+        $('inboundActionCount').textContent=tr('selectedInboundCount',{count:inboundActionItems.length}); $('inboundAiStartSelected').disabled=!state.meta.aiReady; $('inboundActionError').textContent=state.meta.aiReady?'':'Externe KI ist noch nicht durch einen Mandanten-Admin eingerichtet.'; bootstrap.Modal.getOrCreateInstance($('inboundActionModal')).show(); return;
     }
     state.dirty=false; const ids=[...state.selected]; const inTrash=state.rows.filter(row => state.selected.has(Number(row.id))).every(row => state.scope==='trash');
     $('bulkEditCount').textContent=`${ids.length} ausgewählte Dokumente dieser Ergebnisseite`;
@@ -415,21 +441,30 @@ async function openBulkEditor() {
     bulkFields(); bootstrap.Modal.getOrCreateInstance($('bulkEditModal')).show();
 }
 function renderAiJob(job) {
-    const done=Number(job.completed_count)+Number(job.failed_count), total=Math.max(1,Number(job.total_count)); $('inboundAiProgress').max=total; $('inboundAiProgress').value=done;
+    const done=Number(job.completed_count)+Number(job.failed_count), total=Math.max(1,Number(job.total_count)), items=job.items||[]; $('inboundAiProgress').max=total; $('inboundAiProgress').value=done;
+    const queued=items.filter(item=>item.status==='queued').length, running=items.filter(item=>item.status==='running').length;
     const queuedSince=Date.parse(String(job.created_at).replace(' ','T')+'Z'), workerLate=job.status==='queued'&&Number.isFinite(queuedSince)&&Date.now()-queuedSince>120000;
-    $('inboundAiProgressText').textContent=job.status==='completed'?`${done} von ${job.total_count} erfolgreich analysiert.`:job.status==='failed'?`${job.completed_count} erfolgreich, ${job.failed_count} fehlgeschlagen.`:job.status==='queued'?(workerLate?'KI-Auftrag wartet noch. Bitte den KI-Hintergrundworker prüfen.':`KI-Auftrag wartet auf Verarbeitung · ${done} von ${job.total_count} erledigt …`):`${done} von ${job.total_count} verarbeitet …`;
-    $('inboundAiProgressItems').innerHTML=(job.items||[]).map(item=>'<li><span>'+esc(item.original_name)+'</span><strong>'+esc(item.status==='failed'?aiErrorLabel(item.error_code):aiStatusLabel(item.status))+'</strong></li>').join(''); return job.status==='queued'||job.status==='running';
+    $('inboundAiProgressText').textContent=job.status==='completed'?clientTr('aiCompletedProgress',{done:job.completed_count,total:job.total_count}):job.status==='failed'?clientTr('aiFailedProgress',{done:job.completed_count,failed:job.failed_count}):job.status==='cancelled'?clientTr('cancelled'):workerLate?clientTr('aiQueuedLate'):clientTr('aiProgressCounts',{done,total:job.total_count,queued,running,failed:job.failed_count});
+    $('inboundAiProgressItems').innerHTML=items.map(item=>'<li><span>'+esc(item.original_name)+'</span><strong>'+esc(item.status==='failed'?aiErrorLabel(item.error_code):aiStatusLabel(item.status))+'</strong></li>').join(''); return job.status==='queued'||job.status==='running';
 }
 async function startInboundAi(items) {
     if (!items.length || !state.meta.aiReady) { error(new Error('Externe KI ist für diesen Mandanten nicht eingerichtet.')); return; }
     if (!(await confirmDialog('Externe KI-Verarbeitung starten?',`${items.length} Eingangselement(e) werden zur Analyse an den konfigurierten externen Dienst übertragen. Vorhandene KI-Vorschläge werden durch den neuen Lauf ersetzt.`,'KI starten'))) return;
-    bootstrap.Modal.getInstance($('inboundActionModal'))?.hide(); $('inboundAiProgressText').textContent='KI-Auftrag wird angelegt …'; $('inboundAiProgressItems').textContent=''; $('inboundAiProgress').value=0; $('inboundAiProgress').max=Math.max(1,items.length); bootstrap.Modal.getOrCreateInstance($('inboundAiProgressModal')).show();
-    try { const job=await api('inboundAiStart',{items:JSON.stringify(items)},true); await runInboundAiJob(job.id,job); }
-    catch (problem) { $('inboundAiProgressText').textContent=problem.message||String(problem); }
+    try {
+        let job;
+        try { job=await api('inboundAiStart',{items:JSON.stringify(items)},true); }
+        catch (problem) {
+            if (problem.code!=='active_ai_job') throw problem;
+            const confirmed=await confirmDialog(clientTr('cancelAiRunTitle'),clientTr('cancelAiRunConfirm',{count:items.length}),clientTr('cancelAiRunAction'),true);
+            if (!confirmed) return;
+            job=await api('inboundAiStart',{items:JSON.stringify(items),replaceActive:'1'},true);
+        }
+        bootstrap.Modal.getInstance($('inboundActionModal'))?.hide(); await runInboundAiJob(job.id,job);
+    } catch (problem) { if ($('inboundActionModal').classList.contains('show')) $('inboundActionError').textContent=problem.message||String(problem); else error(problem); }
 }
 async function runInboundAiJob(id,initial=null) {
     $('inboundAiProgressText').textContent='KI-Auftrag wird vorbereitet …'; $('inboundAiProgressItems').textContent=''; bootstrap.Modal.getOrCreateInstance($('inboundAiProgressModal')).show();
-    try { let job=initial||await api('inboundAiJob',{id}); for (let step=0; renderAiJob(job)&&step<51; step++) job=await api('inboundAiRun',{id},true); renderAiJob(job); if (job.status==='queued'||job.status==='running') throw new Error('Manueller KI-Auftrag konnte nicht vollständig abgeschlossen werden.'); state.inboundSelected.clear(); await metadata(); await search(); if (job.status==='completed') notice(`${job.completed_count} Eingangselement(e) mit KI analysiert.`); }
+    try { let job=initial||await api('inboundAiJob',{id}); for (let step=0; renderAiJob(job)&&step<51; step++) { const next=job.items?.find(item=>item.status==='queued'); if (next) $('inboundAiProgressText').textContent=clientTr('aiProcessingDocument',{name:next.original_name}); job=await api('inboundAiRun',{id},true); } renderAiJob(job); if (job.status==='queued'||job.status==='running') throw new Error(clientTr('aiJobIncomplete')); state.inboundSelected.clear(); await metadata(); await search(); if (job.status==='completed') notice(clientTr('aiCompletedNotice',{count:job.completed_count})); }
     catch (problem) { $('inboundAiProgressText').textContent=problem.message||String(problem); }
 }
 $('inboundAiStartSelected').addEventListener('click',()=>startInboundAi(inboundActionItems));
@@ -464,6 +499,8 @@ async function applyBulk(status='keep',directFolderRemoval=null) {
     finally { apply.disabled=false; $('bulkDeleteSelected').disabled=false; $('bulkRestoreSelected').disabled=false; $('bulkRemoveCurrentFolder').disabled=false; }
 }
 $('openBulkEditor').addEventListener('click',openBulkEditor);
+$('closeLiveError').addEventListener('click',()=>{$('liveError').hidden=true;});
+$('closeInboundActionWarning').addEventListener('click',()=>{$('inboundActionWarning').hidden=true;});
 $('bulkFolderAction').addEventListener('change',bulkFields); $('bulkTagAction').addEventListener('change',bulkFields);
 $('bulkEditForm').addEventListener('submit',event => { event.preventDefault(); applyBulk(); });
 $('bulkRemoveCurrentFolder').addEventListener('click',event => { const button=event.currentTarget; if (button.dataset.folderId) applyBulk('keep',{id:button.dataset.folderId,name:button.dataset.folderName}); });
@@ -615,10 +652,28 @@ const acceptanceDialog=new InboundAcceptanceDialog(api,()=>state.meta,invoiceEdi
 const batchAcceptanceDialog=new InboundBatchDialog(api,()=>state.meta,async()=>{ state.dirty=false; await metadata(); await search(); },reviewPreview);
 function openFolder(folder = null, parentId = null) {
     $('folderForm').elements.id.value = folder?.id || ''; $('folderForm').elements.name.value = folder?.name || '';
-    const parent = $('folderParent'); parent.innerHTML = '<option value="">Hauptordner</option>' + state.meta.folders.filter(x => !folder || Number(x.id) !== Number(folder.id)).map(x => '<option value="' + x.id + '">' + esc(x.name) + '</option>').join('');
+    const parent = $('folderParent'); parent.innerHTML = folderParentOptions(state.meta.folders,folder);
     parent.value = folder ? (folder.parent_id == null ? '' : String(folder.parent_id)) : (parentId ? String(parentId) : ''); parent.disabled = false; parent.closest('label').hidden = false;
     $('folderTitle').textContent = folder ? 'Ordner bearbeiten' : 'Neuer Ordner'; $('folderDelete').hidden = !folder; $('folderCreateChild').hidden = !folder;
     bootstrap.Modal.getOrCreateInstance($('folderModal')).show();
+}
+function folderParentOptions(items,currentFolder=null) {
+    const ids=new Set(items.map(item=>String(item.id))), children=new Map();
+    for(const item of items) { const key=item.parent_id==null||!ids.has(String(item.parent_id))?'root':String(item.parent_id); if(!children.has(key))children.set(key,[]); children.get(key).push(item); }
+    const excluded=new Set();
+    if(currentFolder) { const mark=id=>{const key=String(id);if(excluded.has(key))return;excluded.add(key);for(const child of children.get(key)||[])mark(child.id);};mark(currentFolder.id); }
+    const output=['<option value="">Hauptordner</option>'],seen=new Set();
+    const visit=(parent,depth,path=new Set())=>{
+        for(const item of children.get(parent)||[]) {
+            const id=String(item.id);if(excluded.has(id)||seen.has(id)||path.has(id))continue;seen.add(id);
+            const prefix=depth?`${'\u00a0\u00a0'.repeat(depth)}└─ `:'';
+            output.push('<option value="'+esc(id)+'">'+prefix+esc(item.name)+'</option>');
+            const next=new Set(path);next.add(id);visit(id,depth+1,next);
+        }
+    };
+    visit('root',0);
+    for(const item of items)if(!seen.has(String(item.id))&&!excluded.has(String(item.id))){seen.add(String(item.id));output.push('<option value="'+esc(item.id)+'">'+esc(item.name)+'</option>');const next=new Set([String(item.id)]);visit(String(item.id),1,next);}
+    return output.join('');
 }
 $('folderCreate').addEventListener('click',() => openFolder());
 $('folderCreateChild').addEventListener('click',() => { const parentId=Number($('folderForm').elements.id.value); $('folderModal').addEventListener('hidden.bs.modal',() => openFolder(null,parentId),{once:true}); bootstrap.Modal.getInstance($('folderModal')).hide(); });
@@ -786,7 +841,7 @@ function sourceOptions() {
         ? (state.meta?.storageMessage || 'Die geprüfte Dokumentablage ist noch nicht verfügbar.')
         : !sources.length
             ? 'Keine aktive persönliche IMAP- oder WebDAV-Quelle vorhanden. Quellen werden unter Menü → Mein Konto eingerichtet.'
-            : 'Dateien der ausgewählten Quelle anzeigen.';
+            : '';
     $('sourceFetchSubmit').disabled=true; $('sourceFetchStatus').textContent=''; $('sourceFetchProgress').hidden=true;
     sourceRetention();
 }
@@ -800,7 +855,7 @@ function sourceRetention() {
             ? 'Nach vollständig erfolgreichem Abruf wird die Nachricht an der Quelle gelöscht, sofern alle unterstützten Dokumentanhänge der Nachricht übernommen wurden.'
             : 'Nach vollständig erfolgreichem Abruf werden die abgerufenen Dateien an der WebDAV-Quelle gelöscht.'
         : 'Die abgerufenen Dateien beziehungsweise Nachrichten bleiben nach erfolgreichem Abruf an der Quelle erhalten.';
-    hint.classList.toggle('is-destructive',remove); hint.hidden=false;
+    hint.hidden=false;
 }
 function syncSourceSelection() {
     const boxes=[...$('sourceInventory').querySelectorAll('input[type="checkbox"]')]; const marked=boxes.filter(box=>box.checked).length; const all=boxes.length>0 && marked===boxes.length;
@@ -845,7 +900,7 @@ $('sourceBrowse').addEventListener('click',async () => {
 });
 $('sourceInventory').addEventListener('change',syncSourceSelection);
 $('sourceSelectAll').addEventListener('click',()=>{ const boxes=[...$('sourceInventory').querySelectorAll('input[type="checkbox"]')]; const mark=!boxes.length?false:!boxes.every(box=>box.checked); boxes.forEach(box=>{ box.checked=mark; }); syncSourceSelection(); });
-$('sourceFetchSource').addEventListener('change',()=>{ $('sourceInventory').textContent='Dateien dieser Quelle anzeigen.'; $('sourceFetchSubmit').disabled=true; $('sourceSelectAll').hidden=true; $('sourceSelectAll').disabled=true; $('sourceSelectAll').setAttribute('aria-pressed','false'); $('sourceSelectAllLabel').textContent='Alle markieren'; $('sourceFetchStatus').textContent=''; sourceRetention(); });
+$('sourceFetchSource').addEventListener('change',()=>{ $('sourceInventory').textContent=''; $('sourceFetchSubmit').disabled=true; $('sourceSelectAll').hidden=true; $('sourceSelectAll').disabled=true; $('sourceSelectAll').setAttribute('aria-pressed','false'); $('sourceSelectAllLabel').textContent='Alle markieren'; $('sourceFetchStatus').textContent=''; sourceRetention(); });
 $('sourceFetchForm').addEventListener('submit',async event => {
     event.preventDefault(); const keys=[...$('sourceInventory').querySelectorAll('input:checked')].map(input=>input.value); if (!keys.length) return;
     $('sourceFetchSubmit').disabled=true; $('sourceBrowse').disabled=true;

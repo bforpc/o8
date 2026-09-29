@@ -10,6 +10,7 @@ use O8\Inbound\InboundWorkbench;
 use O8\Inbound\AiJobs;
 use O8\Inbound\AiConfiguration;
 use O8\Inbound\InboundAcceptance;
+use O8\Inbound\InboundUploads;
 try {
     foreach (array_merge($_GET,$_POST) as $value) if (!is_string($value)) throw new RuntimeException('Ungültiges Eingabeformat.');
     if (!$installed || !$actor || $actor->kind!=='tenant') { http_response_code(401); throw new RuntimeException('Bitte anmelden und einen Mandanten öffnen.'); }
@@ -17,7 +18,7 @@ try {
     if (!is_string($context) || $context==='' || !hash_equals($_SESSION['actor']['context_token']??'',$context)) { http_response_code(409); throw new RuntimeException('Mandantenkontext geändert. Bitte die Seite neu laden.'); }
     $actor->requireReady(); $documents=new Documents($db,$root); $api=$_GET['api'];
     if (!is_string($api)) throw new RuntimeException('Ungültiger Aufruf.');
-    $write=in_array($api,['upload','save','status','folder','link','tag','bulk','trashPurge','invoice','preferences','sourceFetch','sourceRun','inboundDelete','inboundAiStart','inboundAiRun','inboundAccept','inboundBatchPreview','inboundBatchAccept'],true);
+    $write=in_array($api,['upload','save','status','folder','link','tag','bulk','trashPurge','invoice','preferences','sourceFetch','sourceRun','inboundDelete','inboundAiStart','inboundAiRun','inboundAccept','inboundBatchPreview','inboundBatchAccept','inboundRestore'],true);
     if ($_SERVER['REQUEST_METHOD']!==($write?'POST':'GET')) { http_response_code(405); throw new RuntimeException('HTTP-Methode nicht erlaubt.'); }
     if ($write && !hash_equals($_SESSION['csrf'],field('csrf'))) { http_response_code(403); throw new RuntimeException('Sitzung abgelaufen. Bitte Seite neu laden.'); }
     if ($api==='file') {
@@ -76,7 +77,8 @@ try {
     elseif ($api==='inboundAiJob') $result=(new AiJobs($db,$root,$identity))->job($actor,(int)($_GET['id']??0));
     elseif ($api==='get') $result=$documents->get($actor,(int)($_GET['id']??0));
     elseif ($api==='folderDeletePreview') { $preview=$documents->folderDeletePreview($actor,(int)($_GET['id']??0)); $result=['name'=>$preview['name'],'folders'=>$preview['folders'],'documents'=>$preview['documents'],'fingerprint'=>$preview['fingerprint']]; }
-    elseif ($api==='upload') $result=['id'=>$documents->upload($actor,is_array($_FILES['document']??null)?$_FILES['document']:[])];
+    elseif ($api==='upload') $result=['id'=>(new InboundUploads($db,$root))->upload($actor,is_array($_FILES['document']??null)?$_FILES['document']:[])];
+    elseif ($api==='inboundRestore') $result=['id'=>(new InboundUploads($db,$root))->restoreDraft($actor,(int)field('id'),(int)field('revision'))];
     elseif ($api==='save') { $input=$_POST; $input['tags']=json_decode(field('tags'),true,16,JSON_THROW_ON_ERROR); $input['newTags']=json_decode(field('newTags')?:'[]',true,16,JSON_THROW_ON_ERROR); $documents->save($actor,(int)field('id'),(int)field('revision'),$input); }
     elseif ($api==='status') $documents->status($actor,(int)field('id'),(int)field('revision'),field('operation'));
     elseif ($api==='folder') {
@@ -96,7 +98,7 @@ try {
     elseif ($api==='sourceFetch') $result=(new RemoteFetchJobs($db,$root,$identity))->enqueue($actor,(int)field('source'),json_decode(field('keys'),true,16,JSON_THROW_ON_ERROR));
     elseif ($api==='sourceRun') $result=(new RemoteFetchJobs($db,$root,$identity))->runManualStep($actor,(int)field('id'));
     elseif ($api==='inboundDelete') $result=['count'=>(new InboundWorkbench($db,$root))->delete($actor,json_decode(field('items'),true,16,JSON_THROW_ON_ERROR))];
-    elseif ($api==='inboundAiStart') $result=(new AiJobs($db,$root,$identity))->enqueue($actor,json_decode(field('items'),true,16,JSON_THROW_ON_ERROR));
+    elseif ($api==='inboundAiStart') $result=(new AiJobs($db,$root,$identity))->enqueue($actor,json_decode(field('items'),true,16,JSON_THROW_ON_ERROR),'manual',field('replaceActive')==='1');
     elseif ($api==='inboundAiRun') { @set_time_limit(600); $result=(new AiJobs($db,$root,$identity))->runManualStep($actor,(int)field('id')); }
     else { http_response_code(404); throw new RuntimeException('Unbekannter Aufruf.'); }
     header('Content-Type: application/json; charset=utf-8'); echo json_encode(['success'=>true,'data'=>$result],JSON_THROW_ON_ERROR);
@@ -105,6 +107,7 @@ try {
     header('Content-Type: application/json; charset=utf-8');
     $message=$e instanceof PDOException?'Datenbankaktion fehlgeschlagen. Eventuell existiert dieser Name bereits.':($e instanceof RuntimeException?$e->getMessage():'Ungültige Eingabe oder interner Fehler. Bitte neu laden.');
     $message=O8\Core\Languages::display($languageCatalog,$language,$message);
-    echo json_encode(['success'=>false,'error'=>$message],JSON_INVALID_UTF8_SUBSTITUTE);
+    $payload=['success'=>false,'error'=>$message]; if ($e instanceof O8\Inbound\ActiveAiJobException) $payload['code']='active_ai_job';
+    echo json_encode($payload,JSON_INVALID_UTF8_SUBSTITUTE);
 }
 exit;

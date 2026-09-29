@@ -15,7 +15,17 @@ final class RemoteSourceBrowser
     public function browse(Actor $actor,int $sourceId): array
     {
         $connection=$this->sources->connection($actor,$sourceId);
-        return $connection['kind']==='imap'?$this->imap($connection['config'],$connection['secret'],false):$this->webdav($connection['config'],$connection['secret'],false);
+        if ($connection['kind']!=='imap') return $this->webdav($connection['config'],$connection['secret'],false);
+        try { return $this->imap($connection['config'],$connection['secret'],false); }
+        catch (\RuntimeException $error) { throw $error; }
+        catch (\Throwable $error) {
+            $message=$error->getMessage();
+            foreach ([$connection['secret'],$connection['config']['username']??'',$connection['config']['host']??''] as $sensitive) {
+                if (is_string($sensitive) && strlen($sensitive)>=4) $message=str_replace($sensitive,'[redacted]',$message);
+            }
+            $message=mb_substr(trim($message),0,240);
+            throw new \RuntimeException('Interner IMAP-Fehler ('.basename(str_replace('\\','/',$error::class)).')'.($message!==''?': '.$message:'.'),0,$error);
+        }
     }
 
     /** Re-lists the source and resolves opaque browser keys to worker-only locators. */
@@ -38,11 +48,12 @@ final class RemoteSourceBrowser
         $transport=$config['security']==='tls'?'ssl':'tls'; $mailbox='{'.$config['host'].':'.(int)$config['port'].'/imap/'.$transport.'}'.$config['folder'];
         $stream=@imap_open($mailbox,$config['username'],$secret,OP_READONLY,1,['DISABLE_AUTHENTICATOR'=>'GSSAPI']);
         try {
-            if ($stream===false) throw new \RuntimeException('IMAP-Verbindung oder Anmeldung fehlgeschlagen.');
-            $status=@imap_status($stream,$mailbox,SA_MESSAGES|SA_UIDVALIDITY); if ($status===false) throw new \RuntimeException('IMAP-Postfach konnte nicht gelesen werden.');
-            $uids=@imap_sort($stream,SORTARRIVAL,1,SE_UID)?:[]; $uids=array_slice($uids,0,self::MAX_MESSAGES); $rows=[];
+            if ($stream===false) throw $this->imapFailure('connect',$config);
+            $status=@imap_status($stream,$mailbox,SA_MESSAGES|SA_UIDVALIDITY); if ($status===false) throw $this->imapFailure('status',$config);
+            $uids=@imap_sort($stream,SORTARRIVAL,true,SE_UID,'UNDELETED'); if ($uids===false) throw $this->imapFailure('list',$config);
+            $uids=array_slice($uids,0,self::MAX_MESSAGES); $rows=[];
             foreach ($uids as $uid) {
-                $overview=@imap_fetch_overview($stream,(string)(int)$uid,FT_UID); $header=$overview[0]??null; $structure=@imap_fetchstructure($stream,(string)(int)$uid,FT_UID); if (!$header || !$structure) continue;
+                $overview=@imap_fetch_overview($stream,(string)(int)$uid,FT_UID); $header=$overview[0]??null; $structure=@imap_fetchstructure($stream,(int)$uid,FT_UID); if (!$header || !$structure) continue;
                 $attachments=[]; foreach ($this->parts($structure) as $part) {
                     $name=$this->filename($part['part']); if ($name==='' || !$this->supported($name)) continue;
                     $attachments[]=['remoteKey'=>hash('sha256',(int)$status->uidvalidity."\0".(int)$uid."\0".$part['section']),'section'=>$part['section'],'encoding'=>(int)($part['part']->encoding??0),'filename'=>$name,'size'=>(int)($part['part']->bytes??0),'mime'=>$this->mime($part['part'])];
@@ -53,6 +64,24 @@ final class RemoteSourceBrowser
             if (!$internal) foreach ($rows as &$row) foreach ($row['attachments'] as &$attachment) unset($attachment['section'],$attachment['encoding']);
             return ['kind'=>'imap','uidValidity'=>(int)$status->uidvalidity,'total'=>(int)$status->messages,'limited'=>count($uids)<(int)$status->messages,'rows'=>$rows];
         } finally { if ($stream!==false) @imap_close($stream); imap_errors(); imap_alerts(); }
+    }
+
+    private function imapFailure(string $stage,array $config): \RuntimeException
+    {
+        $diagnostics=imap_errors()?:[]; $last=imap_last_error(); if (is_string($last) && $last!=='') $diagnostics[]=$last;
+        return new \RuntimeException(self::describeImapFailure($stage,$diagnostics,(string)($config['folder']??'')));
+    }
+
+    /** Converts variable server diagnostics to safe, actionable user-facing categories. */
+    public static function describeImapFailure(string $stage,array $diagnostics=[],string $folder=''): string
+    {
+        $text=mb_strtolower(implode(' ',array_map(static fn($message):string=>is_scalar($message)?(string)$message:'',$diagnostics)));
+        if (preg_match('/authenticat|login failed|password|credential|authentication|not authorized|authorization failed/',$text)) return 'IMAP-Anmeldung fehlgeschlagen. Benutzername, Passwort und erlaubtes Authentifizierungsverfahren prüfen.';
+        if (preg_match('/connect|network|resolve|socket|ssl|tls|certificate|timed? ?out|refused|unreachable|host not found/',$text)) return 'IMAP-Verbindung fehlgeschlagen. Serveradresse, DNS, Port und TLS/SSL-Einstellung prüfen.';
+        if (preg_match('/mailbox|folder|select failed|no such|does not exist|not found|invalid.*(box|folder)/',$text)) return 'IMAP-Ordner „'.($folder!==''?$folder:'INBOX').'“ konnte nicht geöffnet werden. Ordnernamen und Zugriffsrechte prüfen.';
+        if ($stage==='connect') return 'IMAP-Postfach konnte nicht geöffnet werden. Verbindung, Zugangsdaten und Ordnernamen prüfen.';
+        if ($stage==='status') return 'IMAP-Ordner „'.($folder!==''?$folder:'INBOX').'“ wurde geöffnet, sein Status konnte aber nicht gelesen werden. Ordnerrechte prüfen.';
+        return 'IMAP-Postfach konnte nicht aufgelistet werden. Ordnerrechte und Serververfügbarkeit prüfen.';
     }
 
     private function webdav(array $config,string $secret,bool $internal): array

@@ -209,7 +209,7 @@ final class RemoteFetchJobs
             $stream=@imap_open($mailbox,$config['username'],$connection['secret'],OP_READONLY,1,['DISABLE_AUTHENTICATOR'=>'GSSAPI']);
             try {
                 if ($stream===false) throw new \RuntimeException('imap_connect_failed'); $status=@imap_status($stream,$mailbox,SA_UIDVALIDITY); if (!$status || (int)$status->uidvalidity!==(int)$locator['uidValidity']) throw new \RuntimeException('imap_changed');
-                $raw=@imap_fetchbody($stream,(string)(int)$locator['uid'],(string)$locator['section'],FT_UID|FT_PEEK); if (!is_string($raw)) throw new \RuntimeException('imap_fetch_failed');
+                $raw=@imap_fetchbody($stream,(int)$locator['uid'],(string)$locator['section'],FT_UID|FT_PEEK); if (!is_string($raw)) throw new \RuntimeException('imap_fetch_failed');
                 $bytes=match((int)($locator['encoding']??0)) { 3=>base64_decode($raw,true),4=>quoted_printable_decode($raw),default=>$raw }; if (!is_string($bytes)) throw new \RuntimeException('imap_decode_failed');
             } finally { if ($stream!==false) @imap_close($stream); imap_errors(); imap_alerts(); }
         } else {

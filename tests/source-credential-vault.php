@@ -7,6 +7,17 @@ use O8\Inbound\RemoteSourceBrowser;
 
 $checks=0;
 function check(bool $condition,string $message): void { global $checks; if (!$condition) throw new RuntimeException('FAIL '.$message); ++$checks; echo "PASS $message\n"; }
+$browserSource=file_get_contents(dirname(__DIR__).'/app/Inbound/RemoteSourceBrowser.php');
+check(is_string($browserSource) && str_contains($browserSource,"imap_sort(\$stream,SORTARRIVAL,true,SE_UID,'UNDELETED')"),'IMAP inventory passes a boolean reverse flag and excludes deleted messages');
+check(is_string($browserSource) && str_contains($browserSource,'imap_fetchstructure($stream,(int)$uid,FT_UID)'),'IMAP inventory passes an integer UID to imap_fetchstructure');
+$fetchSource=file_get_contents(dirname(__DIR__).'/app/Inbound/RemoteFetchJobs.php');
+check(is_string($fetchSource) && str_contains($fetchSource,'imap_fetchbody($stream,(int)$locator[\'uid\']'),'IMAP fetch passes an integer UID to imap_fetchbody');
+check(str_contains($fetchSource,'imap_expunge($stream)'),'successful configured mailbox cleanup expunges messages marked for deletion');
+check(str_contains(RemoteSourceBrowser::describeImapFailure('connect',['LOGIN failed'],'INBOX'),'IMAP-Anmeldung fehlgeschlagen'),'IMAP failure identifies authentication errors');
+check(str_contains(RemoteSourceBrowser::describeImapFailure('connect',['Can not connect to server'],'INBOX'),'IMAP-Verbindung fehlgeschlagen'),'IMAP failure identifies connection errors');
+check(str_contains(RemoteSourceBrowser::describeImapFailure('connect',['Mailbox does not exist'],'Archive'),'IMAP-Ordner „Archive“'),'IMAP failure identifies mailbox folder errors');
+$safeImapError=RemoteSourceBrowser::describeImapFailure('connect',['mailbox xyz denied for user private@example.test'],'INBOX');
+check(!str_contains($safeImapError,'private@example.test'),'IMAP diagnostics do not expose server-provided account details');
 $identity=['id'=>'01234567-89ab-4def-8123-456789abcdef','key'=>str_repeat('ab',32)];
 $vault=new SourceCredentialVault($identity); $cipher=$vault->encrypt('private-token',12,34,'imap');
 check(!str_contains($cipher,'private-token'),'ciphertext does not contain plaintext');
@@ -27,12 +38,12 @@ $selected=RemoteSourceBrowser::selectDocuments(['kind'=>'webdav','rows'=>$davWit
 check(count($selected)===1 && $selected[0]['sidecars'][0]['filename']==='a.json' && $selected[0]['locator']['etag']==='"doc"','verified DAV selection resolves only opaque document key and pairs same-name sidecar');
 $mailInventory=['kind'=>'imap','uidValidity'=>17,'rows'=>[['uid'=>42,'attachments'=>[
     ['remoteKey'=>str_repeat('a',64),'section'=>'1','encoding'=>3,'filename'=>'one.pdf','size'=>8,'mime'=>'application/pdf'],
-    ['remoteKey'=>str_repeat('b',64),'section'=>'2','encoding'=>3,'filename'=>'one.txt','size'=>4,'mime'=>'text/plain'],
+    ['remoteKey'=>str_repeat('b',64),'section'=>'2','encoding'=>3,'filename'=>'one.json','size'=>4,'mime'=>'application/json'],
     ['remoteKey'=>str_repeat('c',64),'section'=>'3','encoding'=>3,'filename'=>'two.pdf','size'=>8,'mime'=>'application/pdf'],
 ]]]];
 $one=RemoteSourceBrowser::selectDocuments($mailInventory,[str_repeat('a',64)]);
 $both=RemoteSourceBrowser::selectDocuments($mailInventory,[str_repeat('a',64),str_repeat('c',64)]);
-check(count($one)===1 && $one[0]['sidecars'][0]['filename']==='one.txt' && !$one[0]['locator']['deleteMessageEligible'],'partial message selection never authorizes deleting its email');
+check(count($one)===1 && $one[0]['sidecars'][0]['filename']==='one.json' && !$one[0]['locator']['deleteMessageEligible'],'partial message selection never authorizes deleting its email');
 check(count($both)===2 && $both[0]['locator']['deleteMessageEligible'] && $both[1]['locator']['deleteMessageEligible'],'complete document selection authorizes post-fetch email cleanup');
 try { RemoteSourceBrowser::parseDavListing('<broken','https://dav.example.test/remote/inbox/'); check(false,'invalid DAV XML rejected'); } catch (RuntimeException) { check(true,'invalid DAV XML rejected'); }
 echo "$checks source credential checks passed.\n";
