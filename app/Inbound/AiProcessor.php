@@ -89,7 +89,17 @@ final class AiProcessor
         if (!function_exists('curl_init')) throw new \RuntimeException('curl_unavailable'); $target=SourceConnectionTester::webDavTarget((string)$config['endpoint']); $response=''; $overflow=false;
         $payload=json_encode(['model'=>$model,'messages'=>[['role'=>'system','content'=>'Du analysierst Dokumente. Antworte ausschließlich mit einem gültigen JSON-Objekt.'],['role'=>'user','content'=>$prompt]],'temperature'=>0],JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE);
         $curl=curl_init($target['url']); curl_setopt_array($curl,[CURLOPT_POST=>true,CURLOPT_HTTPHEADER=>['Authorization: Bearer '.$config['secret'],'Content-Type: application/json','Accept: application/json'],CURLOPT_POSTFIELDS=>$payload,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_CONNECTTIMEOUT=>10,CURLOPT_TIMEOUT=>(int)$config['timeout_seconds'],CURLOPT_SSL_VERIFYPEER=>true,CURLOPT_SSL_VERIFYHOST=>2,CURLOPT_PROTOCOLS=>CURLPROTO_HTTPS,CURLOPT_RESOLVE=>[$target['resolve']],CURLOPT_WRITEFUNCTION=>static function($handle,string $chunk) use (&$response,&$overflow): int { if (strlen($response)+strlen($chunk)>self::MAX_RESPONSE_BYTES) { $overflow=true; return 0; } $response.=$chunk; return strlen($chunk); }]);
-        try { $ok=curl_exec($curl); $status=(int)curl_getinfo($curl,CURLINFO_RESPONSE_CODE); $errno=curl_errno($curl); if ($overflow) throw new \RuntimeException('ai_response_too_large'); if ($ok===false) throw new \RuntimeException($this->curlErrorCode($errno)); if ($status<200 || $status>=300) throw new \RuntimeException('ai_http_error'); } finally { curl_close($curl); }
+        try {
+            $ok=curl_exec($curl); $status=(int)curl_getinfo($curl,CURLINFO_RESPONSE_CODE); $errno=curl_errno($curl);
+            if ($overflow) throw new \RuntimeException('ai_response_too_large');
+            if ($ok===false) throw new \RuntimeException($this->curlErrorCode($errno));
+            if ($status<200 || $status>=300) {
+                if (in_array($status,[401,403],true)) throw new \RuntimeException('ai_auth_rejected');
+                if ($status===404) throw new \RuntimeException('ai_model_not_found');
+                if ($status===429) throw new \RuntimeException('ai_rate_limited');
+                throw new \RuntimeException('ai_http_error_'.$status);
+            }
+        } finally { curl_close($curl); }
         return $response;
     }
 

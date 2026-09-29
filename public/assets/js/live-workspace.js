@@ -17,14 +17,16 @@ const dateLabel = value => /^\d{4}-\d{2}-\d{2}$/.test(String(value ?? '')) ? `${
 const grossLabel = doc => doc.gross_amount === null || doc.gross_amount === undefined ? '' : new Intl.NumberFormat('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(doc.gross_amount)) + ' ' + doc.currency;
 const state = { scope: 'inbox', localScope: 'inbox', searchMode: 'global', page: 1, document: null, meta: null, filteredFolderCounts: null, filteredInboxCount: null, filteredAllCount: null, filteredTrashCount: null, dirty: false, querySequence: 0, documentSequence: 0, lastQuerySearch: false, selected: new Set(), inboundSelected: new Set(), rows: [] };
 let picker, bulkPicker, invoiceEditor, layout, preferences = { widths: [18,27,29,26], mode: 'system', pageSize:50, theme: structuredClone(DEFAULT_THEME) }, pending = 0, waitTimer, writing = false, suppressWaiting = false;
+const searchTagPickers = {};
 let collapsedFolderIds=new Set(), preferenceQueue=Promise.resolve();
 let noticeTimer, autoSearchTimer, sourcePollTimer;
 let searchFlashTimer;
 let inboundActionItems=[];
 const aiStatusLabel = value => ({not_requested:tr('aiNotRequested'),queued:tr('aiQueued'),running:tr('aiRunning'),ready:tr('aiReady'),failed:tr('aiFailed'),completed:tr('completed'),cancelled:clientTr('cancelled')})[value] || value;
 const aiErrorLabel = value => {
-    const labels={text_too_short:clientTr('textTooShort'),extract_tool_missing:clientTr('extractToolMissing'),extract_failed:clientTr('extractFailed'),extract_timeout:clientTr('extractTimeout'),extract_too_large:clientTr('extractTooLarge'),ai_disabled:clientTr('aiDisabled'),curl_unavailable:clientTr('curlUnavailable'),ai_request_failed:clientTr('aiRequestFailed'),ai_timeout:clientTr('aiTimeout'),ai_dns_failed:clientTr('aiDnsFailed'),ai_tls_failed:clientTr('aiTlsFailed'),ai_connection_failed:clientTr('aiConnectionFailed'),ai_http_error:clientTr('aiHttpError'),ai_response_too_large:clientTr('aiResponseTooLarge'),invalid_ai_response:clientTr('invalidAiResponse'),invalid_ai_json:clientTr('invalidAiJson'),storage_missing:clientTr('storageMissing'),storage_unavailable:clientTr('storageUnavailable'),storage_write_failed:clientTr('storageWriteFailed'),storage_verify_failed:clientTr('storageVerifyFailed'),inbound_changed:tr('inboundChanged'),ai_item_failed:clientTr('aiItemFailed'),ai_cancelled:clientTr('aiCancelled')};
-    return labels[value] || (value ? clientTr('aiErrorUnknown',{code:value}) : '');
+    const labels={text_too_short:clientTr('textTooShort'),extract_tool_missing:clientTr('extractToolMissing'),extract_failed:clientTr('extractFailed'),extract_timeout:clientTr('extractTimeout'),extract_too_large:clientTr('extractTooLarge'),ai_disabled:clientTr('aiDisabled'),curl_unavailable:clientTr('curlUnavailable'),ai_request_failed:clientTr('aiRequestFailed'),ai_timeout:clientTr('aiTimeout'),ai_dns_failed:clientTr('aiDnsFailed'),ai_tls_failed:clientTr('aiTlsFailed'),ai_connection_failed:clientTr('aiConnectionFailed'),ai_http_error:clientTr('aiHttpError'),ai_auth_rejected:clientTr('aiAuthRejected'),ai_model_not_found:clientTr('aiModelNotFound'),ai_rate_limited:clientTr('aiRateLimited'),ai_response_too_large:clientTr('aiResponseTooLarge'),invalid_ai_response:clientTr('invalidAiResponse'),invalid_ai_json:clientTr('invalidAiJson'),storage_missing:clientTr('storageMissing'),storage_unavailable:clientTr('storageUnavailable'),storage_write_failed:clientTr('storageWriteFailed'),storage_verify_failed:clientTr('storageVerifyFailed'),inbound_changed:tr('inboundChanged'),ai_item_failed:clientTr('aiItemFailed'),ai_cancelled:clientTr('aiCancelled')};
+    const httpStatus=String(value||'').match(/^ai_http_error_(\d{3})$/);
+    return labels[value] || (httpStatus ? clientTr('aiHttpErrorStatus',{status:httpStatus[1]}) : (value ? clientTr('aiErrorUnknown',{code:value}) : ''));
 };
 function error(problem) { $('liveErrorMessage').textContent = problem.message || String(problem); $('liveError').hidden = false; }
 function notice(message) {
@@ -83,14 +85,21 @@ function syncSelection() {
     $('documentList').querySelectorAll('[data-inbound-select]').forEach(input => { input.checked = state.inboundSelected.has(Number(input.dataset.inboundSelect)); });
 }
 function options(items, empty) { return '<option value="">' + esc(empty) + '</option>' + items.map(x => '<option value="' + x.id + '">' + esc(x.name ?? x.display_name) + '</option>').join(''); }
+function searchFormInput() {
+    const input = Object.fromEntries(new FormData($('searchForm')));
+    const idsByName = new Map((state.meta?.tags || []).map(tag => [tag.name, String(tag.id)]));
+    for (const [key,id] of [['tag','tagFilter'],['notTag','notTagFilter']]) input[key] = (searchTagPickers[id]?.values() || []).map(name => idsByName.get(name)).filter(Boolean).join(',');
+    return input;
+}
 async function metadata(initial = false) {
     state.meta = await api('meta');
     $('uploadOpen').disabled = !state.meta.storageReady;
     $('uploadAction').title = state.meta.storageReady ? '' : state.meta.storageMessage;
     $('uploadOpen').setAttribute('aria-label', state.meta.storageReady ? window.o8Translate?.('navigation.upload') : tr('uploadUnavailable',{reason:state.meta.storageMessage}));
     $('sourceOpen').title = !state.meta.storageReady ? tr('sourcesUnavailable') : state.meta.sources?.some(source => Number(source.enabled)) ? window.o8Translate?.('navigation.sourceFetchTitle') : tr('noEnabledSource');
-    for (const id of ['tagFilter','notTagFilter']) {
-        const selected = $(id).value; $(id).innerHTML = options(state.meta.tags, searchTr('noRestriction')); $(id).value = selected;
+    for (const [id,key] of [['tagFilter','tag'],['notTagFilter','notTag']]) {
+        const tags=state.meta.tags.map(tag => tag.name), selected = searchTagPickers[id]?.values().filter(name => tags.includes(name)) || [];
+        searchTagPickers[id] = new TagPicker($(id),tags,selected,()=>{},searchTr(key==='tag'?'tagInclude':'tagExclude'),false);
     }
     if ($('ownerFilter')) { const selected = $('ownerFilter').value; $('ownerFilter').innerHTML = options(state.meta.users, searchTr('allUsers')); $('ownerFilter').value = selected; }
     if (initial) {
@@ -104,7 +113,7 @@ async function metadata(initial = false) {
         theme();
     }
     folders();
-    if ($('linkFolder')) { const selected = $('linkFolder').value; $('linkFolder').innerHTML = options(state.meta.folders,tr('chooseFolder')); $('linkFolder').value = selected; }
+    if ($('linkFolder')) { const selected = $('linkFolder').value; $('linkFolder').innerHTML = folderParentOptions(state.meta.folders,null,tr('chooseFolder')); $('linkFolder').value = selected; }
 }
 function theme() { preferences.theme = normalizeTheme(preferences.theme || {mode:preferences.mode}); preferences.mode = preferences.theme.mode; applyTheme(preferences.theme); rememberTheme(preferences.theme); }
 async function savePreferences() {
@@ -153,14 +162,17 @@ function folders() {
         const isCollapsed=collapsedFolderIds.has(id), countOverride=isCollapsed?subtreeFolderCount(id):null;
         return button(id,folder.name,true,depth,(byParent.get(id)||[]).length>0,isCollapsed,hidden,countOverride);
     }).join('');
-    $('folderNavigationDesktop').innerHTML = button('inbox',tr('scopeInbox')) + button('all',tr('scopeAll')) + button('unfiled',tr('scopeUnfiled')) + '<div class="folder-nav-label">' + tr('foldersHeading') + '</div>' + folderRows + '<div class="folder-nav-label">' + tr('manageHeading') + '</div>' + button('trash',tr('scopeTrash'));
+    const expandable=state.meta.folders.filter(folder=>(byParent.get(String(folder.id))||[]).length>0);
+    const allCollapsed=expandable.length>0&&expandable.every(folder=>collapsedFolderIds.has(String(folder.id)));
+    const folderToggleAll=expandable.length?'<button type="button" class="folder-expand-all icon-btn" data-folder-toggle-all data-action="'+(allCollapsed?'expand':'collapse')+'" aria-label="'+esc(tr(allCollapsed?'expandAllFolders':'collapseAllFolders'))+'" title="'+esc(tr(allCollapsed?'expandAllFolders':'collapseAllFolders'))+'"><svg class="icon small-icon" aria-hidden="true"><use href="#i-arrow"/></svg></button>':'';
+    $('folderNavigationDesktop').innerHTML = button('inbox',tr('scopeInbox')) + button('all',tr('scopeAll')) + button('unfiled',tr('scopeUnfiled')) + '<div class="folder-nav-label folder-nav-heading"><span>' + tr('foldersHeading') + '</span>' + folderToggleAll + '</div>' + folderRows + '<div class="folder-nav-label">' + tr('manageHeading') + '</div>' + button('trash',tr('scopeTrash'));
 }
 function clearDocument() {
     state.document = null; state.dirty = false; ++state.documentSequence;
     $('documentId').textContent = ''; $('documentDetails').textContent = tr('selectDocument');
     $('documentPreview').textContent = tr('selectDocument'); $('downloadFile').hidden = true; folders();
 }
-function hasActiveSearch(input = Object.fromEntries(new FormData($('searchForm')))) {
+function hasActiveSearch(input = searchFormInput()) {
     return Boolean(input.query?.trim() || ['dateFrom','dateTo','amountFrom','amountTo','invoiceNumbers','accountCode','documentType','tag','notTag','owner','includeExpired','includeNotSearchable'].some(key => input[key]) || input.resultView === 'latest');
 }
 function syncSearchScopeToggle() {
@@ -175,7 +187,7 @@ async function search() {
     const sequence = ++state.querySequence;
     const preferred = state.document?.id; const preferredInbound=Boolean(state.document?._inbound);
     state.selected.clear(); state.inboundSelected.clear(); state.rows=[]; syncSelection(); clearDocument(); $('documentList').textContent = tr('searching');
-    const input = Object.fromEntries(new FormData($('searchForm')));
+    const input = searchFormInput();
     const filtered = hasActiveSearch(input);
     try {
         const showInbound=state.scope==='inbox' && !['dateFrom','dateTo','amountFrom','amountTo','invoiceNumbers','accountCode','documentType','tag','notTag','owner'].some(key=>input[key]) && input.resultView!=='latest';
@@ -296,7 +308,7 @@ function details() {
         '<button class="btn btn-surface btn-sm" type="button" id="documentEditToggle" aria-controls="documentEditor" aria-expanded="false"><svg class="icon small-icon" aria-hidden="true"><use href="#i-settings"/></svg> Bearbeiten</button>' + (Number(d.in_inbox) ? '<button class="btn btn-surface btn-sm" data-status="accept">Übernehmen</button>' + (d.source_type==='upload' ? '<button class="btn btn-outline-primary btn-sm" type="button" id="returnUploadToInbox">'+esc(tr('returnUploadToInbox'))+'</button>' : '') : '') + '<button class="btn btn-outline-danger btn-sm" data-status="trash">Papierkorb</button>';
     const editor = d.deleted_at ? '' :
         '<section class="live-detail-disclosure live-detail-editor" id="documentEditor" hidden><form id="documentForm"><div class="live-detail-edit-grid">' + field('title','Titel',d.title) + field('sender','Absender',d.sender) + field('reference','Referenz',d.reference) + field('date','Dokumentdatum',d.document_date,'date') + '</div>' +
-        '<label>Notiz<textarea class="form-control" name="memo" maxlength="10000" rows="3">' + esc(d.memo) + '</textarea></label><div class="live-detail-flags"><label><input type="checkbox" name="expired" value="1" ' + (Number(d.expired) ? 'checked' : '') + '> Abgelaufen</label><label><input type="checkbox" name="notSearchable" value="1" ' + (!Number(d.searchable) ? 'checked' : '') + '> Nicht suchbar</label></div><p>Tags</p><div id="liveTagPicker"></div><div><button class="btn btn-primary btn-sm mt-2">Speichern' + (Number(d.in_inbox) ? ' & übernehmen' : '') + '</button></div></form><div class="live-detail-link-editor"><label class="d-block">In Ordner verlinken<select id="linkFolder" class="form-select">' + options(state.meta.folders,'Ordner wählen') + '</select></label><button class="btn btn-surface btn-sm mt-2" id="linkButton">Verlinken …</button></div></section>';
+        '<label>Notiz<textarea class="form-control" name="memo" maxlength="10000" rows="3">' + esc(d.memo) + '</textarea></label><div class="live-detail-flags"><label><input type="checkbox" name="expired" value="1" ' + (Number(d.expired) ? 'checked' : '') + '> Abgelaufen</label><label><input type="checkbox" name="notSearchable" value="1" ' + (!Number(d.searchable) ? 'checked' : '') + '> Nicht suchbar</label></div><p>Tags</p><div id="liveTagPicker"></div><div><button class="btn btn-primary btn-sm mt-2">Speichern' + (Number(d.in_inbox) ? ' & übernehmen' : '') + '</button></div></form><div class="live-detail-link-editor"><label class="d-block">In Ordner verlinken<select id="linkFolder" class="form-select">' + folderParentOptions(state.meta.folders,null,tr('chooseFolder')) + '</select></label><button class="btn btn-surface btn-sm mt-2" id="linkButton">Verlinken …</button></div></section>';
     const foldersView = '<section class="live-detail-folders o8-info-group"><h3><svg class="icon small-icon" aria-hidden="true"><use href="#i-folder"/></svg> Ordnerverknüpfungen <span class="count">' + d.folders.length + '</span></h3><div class="live-detail-folder-list">' + d.folders.map(id => { const folder = state.meta.folders.find(x => Number(x.id) === id); return folder ? '<div class="folder-chip"><span>' + esc(folderPath(folder,'/')) + '</span>' + (!d.deleted_at ? '<button type="button" data-unlink="' + id + '" aria-label="Verknüpfung entfernen">×</button>' : '') + '</div>' : ''; }).join('') + '</div></section>';
     $('documentDetails').innerHTML = '<section class="live-detail-head o8-info-group o8-info-group--head"><div class="live-detail-intro"><div class="live-detail-top"><div class="live-detail-status"><span class="tag">' + esc(type) + '</span>' + (Number(d.in_inbox) ? '<span class="tag">'+esc(tr('dmsInboxDraft'))+'</span>' : '') + (Number(d.expired) ? '<span class="tag">Abgelaufen</span>' : '') + (!Number(d.searchable) ? '<span class="tag">Nicht suchbar</span>' : '') + '</div><div class="live-detail-actions">' + actions + '</div></div><h2>' + esc(d.title) + '</h2><p>' + esc(d.sender || 'Ohne Absender') + '</p><span class="detail-label">' + esc(d.original_name) + ' · ' + Math.ceil(Number(d.size_bytes)/1024) + ' KiB</span></div>' +
         '<div class="live-detail-facts">' + fact('Dokumentdatum',dateLabel(d.document_date)) + fact('Quelle',source) + fact('Referenz',d.reference) + fact('Besitzer',owner) + '</div></section>' +
@@ -331,6 +343,14 @@ async function link(folder, remove = false, id = state.document?.id, confirmed =
     } catch (problem) { error(problem); }
 }
 $('folderNavigationDesktop').addEventListener('click',async event => {
+    const toggleAll=event.target.closest('[data-folder-toggle-all]');
+    if (toggleAll) {
+        event.preventDefault(); event.stopPropagation();
+        const expandable=state.meta.folders.filter(folder=>state.meta.folders.some(child=>String(child.parent_id)===String(folder.id)));
+        const allCollapsed=expandable.length>0&&expandable.every(folder=>collapsedFolderIds.has(String(folder.id)));
+        collapsedFolderIds=allCollapsed?new Set():new Set(expandable.map(folder=>String(folder.id)));
+        folders(); void savePreferences(); return;
+    }
     const toggle=event.target.closest('[data-folder-toggle]');
     if (toggle) {
         event.preventDefault(); event.stopPropagation();
@@ -665,17 +685,17 @@ const acceptanceDialog=new InboundAcceptanceDialog(api,()=>state.meta,invoiceEdi
 const batchAcceptanceDialog=new InboundBatchDialog(api,()=>state.meta,async()=>{ state.dirty=false; await metadata(); await search(); },reviewPreview);
 function openFolder(folder = null, parentId = null) {
     $('folderForm').elements.id.value = folder?.id || ''; $('folderForm').elements.name.value = folder?.name || '';
-    const parent = $('folderParent'); parent.innerHTML = folderParentOptions(state.meta.folders,folder);
+    const parent = $('folderParent'); parent.innerHTML = folderParentOptions(state.meta.folders,folder,tr('mainFolder'));
     parent.value = folder ? (folder.parent_id == null ? '' : String(folder.parent_id)) : (parentId ? String(parentId) : ''); parent.disabled = false; parent.closest('label').hidden = false;
     $('folderTitle').textContent = folder ? 'Ordner bearbeiten' : 'Neuer Ordner'; $('folderDelete').hidden = !folder; $('folderCreateChild').hidden = !folder;
     bootstrap.Modal.getOrCreateInstance($('folderModal')).show();
 }
-function folderParentOptions(items,currentFolder=null) {
+function folderParentOptions(items,currentFolder=null,emptyLabel='Hauptordner') {
     const ids=new Set(items.map(item=>String(item.id))), children=new Map();
     for(const item of items) { const key=item.parent_id==null||!ids.has(String(item.parent_id))?'root':String(item.parent_id); if(!children.has(key))children.set(key,[]); children.get(key).push(item); }
     const excluded=new Set();
     if(currentFolder) { const mark=id=>{const key=String(id);if(excluded.has(key))return;excluded.add(key);for(const child of children.get(key)||[])mark(child.id);};mark(currentFolder.id); }
-    const output=['<option value="">Hauptordner</option>'],seen=new Set();
+    const output=['<option value="">'+esc(emptyLabel)+'</option>'],seen=new Set();
     const visit=(parent,depth,path=new Set())=>{
         for(const item of children.get(parent)||[]) {
             const id=String(item.id);if(excluded.has(id)||seen.has(id)||path.has(id))continue;seen.add(id);
@@ -742,7 +762,7 @@ queryInput.addEventListener('input',event => {
     }, 300);
 });
 $('searchForm').addEventListener('submit',async event => { event.preventDefault(); await runSearchFromForm(); });
-$('resetSearch').addEventListener('click',async () => { cancelAutoSearch(); if (await discard()) { $('searchForm').reset(); syncPageSizeControls(); state.dirty = false; state.page = 1; state.scope = state.localScope; search(); } });
+$('resetSearch').addEventListener('click',async () => { cancelAutoSearch(); if (await discard()) { $('searchForm').reset(); for(const searchPicker of Object.values(searchTagPickers)) for(const name of searchPicker.values()) searchPicker.toggle(name); syncPageSizeControls(); state.dirty = false; state.page = 1; state.scope = state.localScope; search(); } });
 $('previousResults').addEventListener('click',async () => { if (await discard()) { state.dirty = false; --state.page; search(); } });
 $('nextResults').addEventListener('click',async () => { if (await discard()) { state.dirty = false; ++state.page; search(); } });
 $('pageSizeSelect').addEventListener('change',event=>changePageSize(event.currentTarget.value));

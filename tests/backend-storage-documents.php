@@ -118,11 +118,16 @@ check($docs->listing($a,['scope'=>'inbox'])['total']===2,'admin sees own tenant 
 rejects(fn()=>$docs->listing($u,['owner'=>$a->id()]),'user cannot request admin owner filter');
 $admin->inviteUser($a,'user'); // Ensure schema additions coexist with purge plan.
 $docs->createTag($a,'Invoice'); $tag=(int)$docs->tags($a)[0]['id'];
+$docs->createTag($a,'Finance'); $secondTag=(int)sql('SELECT id FROM tags WHERE tenant_id=? AND normalized_name=?',[$a->tenantId(),'finance'])->fetchColumn();
 $docs->createTag($u,'User category'); check((int)sql('SELECT COUNT(*) FROM tags WHERE tenant_id=? AND normalized_name=?',[$a->tenantId(),'user category'])->fetchColumn()===1,'normal user can add a tenant catalogue tag');
 $docs->createTag($b,'Foreign'); $foreignTag=(int)$docs->tags($b)[0]['id'];
 rejects(fn()=>$docs->save($a,$id,1,['title'=>'Title','tags'=>[$foreignTag]]),'foreign tenant tag rejected');
 $docs->save($a,$id,1,['title'=>'Saved invoice','sender'=>'Supplier','date'=>'2026-09-17','tags'=>[$tag],'memo'=>'literal % _']);
+sql('INSERT INTO document_tags (tenant_id,document_id,tag_id) VALUES (?,?,?)',[$a->tenantId(),$id,$secondTag]);
 check($docs->listing($a,['scope'=>'all','query'=>'Saved','tag'=>(string)$tag])['total']===1,'metadata save accepts inbox and searchable tag filter');
+check($docs->listing($a,['scope'=>'all','query'=>'Saved','tag'=>[(string)$tag,(string)$secondTag]])['total']===1,'multiple included tags require all selected tags');
+check($docs->listing($a,['scope'=>'all','query'=>'Saved','tag'=>(string)$tag,'notTag'=>(string)$secondTag])['total']===0,'multiple tag exclusion filters documents containing excluded tags');
+rejects(fn()=>$docs->listing($a,['scope'=>'all','tag'=>[$tag,$secondTag],'notTag'=>(string)$secondTag]),'a tag cannot be both included and excluded');
 check($docs->unfiledCount($a)===1 && $docs->unfiledCount($u)===0 && $docs->unfiledCount($b)===0,'unfiled counter excludes inbox and respects owner/tenant');
 check($docs->listing($a,['scope'=>'all','query'=>'D'.$id,'folderCounts'=>'1'])['unfiledCount']===1,'global filtered unfiled counter includes unlinked match');
 check($docs->listing($a,['scope'=>'all','query'=>'absent-token','folderCounts'=>'1'])['unfiledCount']===0,'unfiled counter clears when search has no matches');

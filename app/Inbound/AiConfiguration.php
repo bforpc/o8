@@ -54,7 +54,14 @@ final class AiConfiguration
         $url='https://'.$parts['host'].(isset($parts['port'])?':'.(int)$parts['port']:'').$path;
         try { $target=SourceConnectionTester::webDavTarget($url); } catch (\Throwable) { throw new \RuntimeException('IONOS-Endpunkt konnte nicht sicher aufgelöst werden.'); } if (!function_exists('curl_init')) throw new \RuntimeException('cURL ist für den Modellabruf nicht verfügbar.'); $body=''; $overflow=false; $curl=curl_init($target['url']);
         curl_setopt_array($curl,[CURLOPT_HTTPGET=>true,CURLOPT_HTTPHEADER=>['Authorization: Bearer '.$config['secret'],'Accept: application/json'],CURLOPT_FOLLOWLOCATION=>false,CURLOPT_CONNECTTIMEOUT=>10,CURLOPT_TIMEOUT=>25,CURLOPT_SSL_VERIFYPEER=>true,CURLOPT_SSL_VERIFYHOST=>2,CURLOPT_PROTOCOLS=>CURLPROTO_HTTPS,CURLOPT_RESOLVE=>[$target['resolve']],CURLOPT_WRITEFUNCTION=>static function($handle,string $chunk) use (&$body,&$overflow): int { if (strlen($body)+strlen($chunk)>1048576) { $overflow=true; return 0; } $body.=$chunk; return strlen($chunk); }]);
-        try { $ok=curl_exec($curl); $status=(int)curl_getinfo($curl,CURLINFO_RESPONSE_CODE); if ($overflow) throw new \RuntimeException('Modellliste ist unerwartet groß.'); if ($ok===false || $status<200 || $status>=300) throw new \RuntimeException('IONOS-Modellliste konnte nicht geladen werden.'); } finally { curl_close($curl); }
+        try {
+            $ok=curl_exec($curl); $status=(int)curl_getinfo($curl,CURLINFO_RESPONSE_CODE); $errno=curl_errno($curl);
+            if ($overflow) throw new \RuntimeException('Modellliste ist unerwartet groß.');
+            if ($ok===false) throw new \RuntimeException('IONOS-Modellliste: HTTPS-Verbindung fehlgeschlagen (cURL-Fehler '.$errno.').');
+            if ($status===401 || $status===403) throw new \RuntimeException('IONOS-Modellabruf abgelehnt (HTTP '.$status.'). API-Token und Modell-Hub-Berechtigung prüfen.');
+            if ($status===404) throw new \RuntimeException('IONOS-Modellabruf nicht gefunden (HTTP 404). Endpunkt prüfen: /v1/models.');
+            if ($status<200 || $status>=300) throw new \RuntimeException('IONOS-Modellabruf fehlgeschlagen (HTTP '.$status.').');
+        } finally { curl_close($curl); }
         try { $decoded=json_decode($body,true,32,JSON_THROW_ON_ERROR); } catch (\JsonException) { throw new \RuntimeException('IONOS-Modellliste hat ein ungültiges Format.'); }
         $models=[]; foreach ($decoded['data']??[] as $row) { $id=is_array($row)?trim((string)($row['id']??'')):''; if ($id!=='' && mb_strlen($id)<=190 && preg_match('/^[\pL\pN._:\/-]+$/uD',$id)) $models[$id]=$id; if (count($models)>=500) break; }
         if (!$models) throw new \RuntimeException('IONOS hat keine verwendbaren Modelle zurückgegeben.'); natcasesort($models); return array_values($models);

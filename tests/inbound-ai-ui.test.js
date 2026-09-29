@@ -40,13 +40,25 @@ test('AI replacement confirmation and progress use available client translations
     }
     assert.match(view,/id="inboundAiBackgroundHint"/);
     assert.match(view,/tr\('client\.aiProgressBackgroundHint'\)/);
-    assert.match(script,/return labels\[value\] \|\| \(value \? clientTr\('aiErrorUnknown'/);
+    assert.match(script,/return labels\[value\] \|\| \(httpStatus \? clientTr\('aiHttpErrorStatus'/);
     assert.match(script,/json!==null&&item\.ai_history\?\.\[0\]\?\.status==='failed'/);
     assert.match(script,/clientTr\('aiSidecarWithFailedRun'\)/);
-    for (const key of ['aiProgressBackgroundHint','aiErrorUnknown','aiSidecarWithFailedRun','extractTooLarge','curlUnavailable','aiRequestFailed','storageMissing','storageUnavailable','storageWriteFailed','storageVerifyFailed']) {
+    for (const key of ['aiProgressBackgroundHint','aiErrorUnknown','aiSidecarWithFailedRun','extractTooLarge','curlUnavailable','aiRequestFailed','aiHttpErrorStatus','aiAuthRejected','aiModelNotFound','aiRateLimited','storageMissing','storageUnavailable','storageWriteFailed','storageVerifyFailed']) {
         assert.equal(typeof german.client?.[key], 'string', `German client translation missing: ${key}`);
         assert.equal(typeof english.client?.[key], 'string', `English client translation missing: ${key}`);
     }
+});
+
+test('IONOS errors expose safe HTTP diagnostics for inference and model-list requests',()=>{
+    const processor=readFileSync(new URL('../app/Inbound/AiProcessor.php',import.meta.url),'utf8');
+    const configuration=readFileSync(new URL('../app/Inbound/AiConfiguration.php',import.meta.url),'utf8');
+    assert.match(processor,/ai_auth_rejected/);
+    assert.match(processor,/ai_model_not_found/);
+    assert.match(processor,/ai_rate_limited/);
+    assert.match(processor,/ai_http_error_'\.\$status/);
+    assert.match(configuration,/IONOS-Modellabruf abgelehnt \(HTTP '\.\$status/);
+    assert.match(configuration,/IONOS-Modellabruf nicht gefunden \(HTTP 404\)/);
+    assert.match(script,/ai_http_error_\(\\d\{3\}\)/);
 });
 
 test('mixed DMS and inbox selections still permit inbox AI actions and their warning is dismissible', () => {
@@ -83,8 +95,9 @@ test('inbound JSON is collapsed and folder drop keeps the acceptance review', ()
 });
 
 test('folder parent choices preserve the hierarchy and successful batch acceptance closes', () => {
-    assert.match(script,/function folderParentOptions\(items,currentFolder=null\)/);
-    assert.match(script,/parent\.innerHTML = folderParentOptions\(state\.meta\.folders,folder\)/);
+    assert.match(script,/function folderParentOptions\(items,currentFolder=null,emptyLabel='Hauptordner'\)/);
+    assert.match(script,/parent\.innerHTML = folderParentOptions\(state\.meta\.folders,folder,tr\('mainFolder'\)\)/);
+    assert.match(script,/id="linkFolder" class="form-select">' \+ folderParentOptions\(state\.meta\.folders,null,tr\('chooseFolder'\)\)/);
     assert.match(script,/repeat\(depth\).*└─/s);
     assert.match(batchScript,/closeAfterSuccess=done===rows\.length&&failed===0&&!this\.stopping/);
     assert.match(batchScript,/this\.running=false; stop\.hidden=true[\s\S]*?if\(closeAfterSuccess\)bootstrap\.Modal\.getOrCreateInstance\(this\.modal\)\.hide\(\)/);

@@ -280,8 +280,22 @@ final class Documents
         if (!in_array($scope,['inbox','all','unfiled','trash'],true) && !ctype_digit($scope)) throw new \RuntimeException('Ungültiger Suchbereich.');
         $query=trim((string)($input['query']??''));
         if (mb_strlen($query)>250) throw new \RuntimeException('Suchtext maximal 250 Zeichen.');
-        $searchKeys=['dateFrom','dateTo','amountFrom','amountTo','invoiceNumbers','accountCode','documentType','tag','notTag','owner','includeExpired','includeNotSearchable'];
-        $searching=$query!=='' || ($input['resultView']??'')==='latest';
+        $tagFilters=[];
+        foreach (['tag','notTag'] as $key) {
+            $raw=$input[$key]??'';
+            if (is_array($raw)) $values=$raw;
+            elseif (is_string($raw) || is_int($raw)) $values=$raw===''?[]:preg_split('/[,;]+/',(string)$raw,-1,PREG_SPLIT_NO_EMPTY);
+            else throw new \RuntimeException('Ungültiger Tagfilter.');
+            $ids=[];
+            foreach ($values as $value) {
+                if (!(is_string($value) || is_int($value)) || !ctype_digit((string)$value)) throw new \RuntimeException('Ungültiger Tagfilter.');
+                $id=(int)$value; if ($id<1) throw new \RuntimeException('Ungültiger Tagfilter.'); $ids[]=$id;
+            }
+            $tagFilters[$key]=array_values(array_unique($ids));
+            if (count($tagFilters[$key])>1000) throw new \RuntimeException('Zu viele ausgewählte Tags.');
+        }
+        $searchKeys=['dateFrom','dateTo','amountFrom','amountTo','invoiceNumbers','accountCode','documentType','owner','includeExpired','includeNotSearchable'];
+        $searching=$query!=='' || ($input['resultView']??'')==='latest' || $tagFilters['tag']!==[] || $tagFilters['notTag']!==[];
         foreach ($searchKeys as $searchKey) if (($input[$searchKey]??'')!=='') { $searching=true; break; }
         if (!$searching) $scopeRestriction=$scope==='trash'?' AND d.deleted_at IS NOT NULL':' AND d.deleted_at IS NULL';
         elseif ($scope==='trash') $scopeRestriction=' AND d.deleted_at IS NOT NULL';
@@ -317,11 +331,9 @@ final class Documents
             if ($actor->row['role']!=='admin' || !ctype_digit((string)$input['owner'])) throw new \RuntimeException('Besitzerfilter nur für Admins.');
             $where.=' AND d.owner_id=?'; $params[]=$input['owner'];
         }
-        foreach (['tag'=>false,'notTag'=>true] as $key=>$not) if (($input[$key]??'')!=='') {
-            if (!ctype_digit((string)$input[$key])) throw new \RuntimeException('Ungültiger Tagfilter.');
-            $where.=' AND '.($not?'NOT ':'').'EXISTS (SELECT 1 FROM document_tags dt WHERE dt.tenant_id=d.tenant_id AND dt.document_id=d.id AND dt.tag_id=?)'; $params[]=$input[$key];
-        }
-        if (($input['tag']??'')!=='' && ($input['tag']??'')===($input['notTag']??'')) throw new \RuntimeException('Derselbe Tag kann nicht zugleich verlangt und ausgeschlossen werden.');
+        if (array_intersect($tagFilters['tag'],$tagFilters['notTag'])) throw new \RuntimeException('Derselbe Tag kann nicht zugleich verlangt und ausgeschlossen werden.');
+        foreach ($tagFilters['tag'] as $tagId) { $where.=' AND EXISTS (SELECT 1 FROM document_tags dt WHERE dt.tenant_id=d.tenant_id AND dt.document_id=d.id AND dt.tag_id=?)'; $params[]=$tagId; }
+        foreach ($tagFilters['notTag'] as $tagId) { $where.=' AND NOT EXISTS (SELECT 1 FROM document_tags dt WHERE dt.tenant_id=d.tenant_id AND dt.document_id=d.id AND dt.tag_id=?)'; $params[]=$tagId; }
         $sort=['newest'=>'d.document_date DESC,d.id DESC','oldest'=>'d.document_date ASC,d.id ASC','added'=>'d.created_at DESC,d.id DESC','title'=>'d.title ASC,d.id ASC'][(string)($input['sort']??'newest')]??null;
         if (!$sort) throw new \RuntimeException('Ungültige Sortierung.');
         $size=(int)($input['size']??50); if (!in_array($size,[10,25,50,100,250,500,1000],true)) throw new \RuntimeException('Ungültige Seitengröße.');
