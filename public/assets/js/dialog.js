@@ -9,7 +9,7 @@ function element() {
     modal.className = 'modal fade';
     modal.tabIndex = -1;
     modal.setAttribute('aria-labelledby', 'o8ActionDialogTitle');
-    modal.innerHTML = `<div class="modal-dialog modal-dialog-centered"><form class="modal-content"><div class="modal-header"><h2 class="modal-title fs-5" id="o8ActionDialogTitle"></h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="${display('Schließen')}"></button></div><div class="modal-body"><p class="mb-0" id="o8ActionDialogMessage"></p><label class="form-label mt-3 mb-0" id="o8ActionDialogInputWrap" hidden>${display('Name')}<input class="form-control mt-1" id="o8ActionDialogInput" maxlength="190" required></label></div><div class="modal-footer"><button type="button" class="btn btn-surface" data-bs-dismiss="modal">${display('Abbrechen')}</button><button type="button" class="btn btn-outline-danger" id="o8ActionDialogAlternative" hidden></button><button type="submit" class="btn btn-primary" id="o8ActionDialogConfirm">${display('Bestätigen')}</button></div></form></div>`;
+    modal.innerHTML = `<div class="modal-dialog modal-dialog-centered"><form class="modal-content"><div class="modal-header"><h2 class="modal-title fs-5" id="o8ActionDialogTitle"></h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="${display('Schließen')}"></button></div><div class="modal-body"><div class="mb-0" id="o8ActionDialogMessage"></div><label class="form-label mt-3 mb-0" id="o8ActionDialogInputWrap" hidden>${display('Name')}<input class="form-control mt-1" id="o8ActionDialogInput" maxlength="190" required></label></div><div class="modal-footer"><button type="button" class="btn btn-surface" data-bs-dismiss="modal">${display('Abbrechen')}</button><button type="button" class="btn btn-outline-danger" id="o8ActionDialogAlternative" hidden></button><button type="submit" class="btn btn-primary" id="o8ActionDialogConfirm">${display('Bestätigen')}</button></div></form></div>`;
     document.body.append(modal);
     return modal;
 }
@@ -29,7 +29,17 @@ async function ask({title, message, label, destructive = false, input = false, c
         await hidden;
     }
     modal.querySelector('#o8ActionDialogTitle').textContent = display(title);
-    modal.querySelector('#o8ActionDialogMessage').textContent = display(message);
+    const messageNode=modal.querySelector('#o8ActionDialogMessage');
+    messageNode.replaceChildren();
+    if (Array.isArray(message)) {
+        message.forEach((line,index) => {
+            const row=document.createElement('div'); row.className='action-dialog-line';
+            if (index<message.length-1) row.classList.add('mb-1');
+            const content=line.emphasis?document.createElement('strong'):document.createElement('span');
+            content.textContent=display(line.text);
+            row.append(content); messageNode.append(row);
+        });
+    } else messageNode.textContent = display(message);
     modal.querySelector('.modal-footer [data-bs-dismiss="modal"]').textContent = display(cancelLabel);
     const field = modal.querySelector('#o8ActionDialogInput');
     field.value = '';

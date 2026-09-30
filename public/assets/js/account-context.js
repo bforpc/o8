@@ -55,3 +55,6 @@ for (const select of document.querySelectorAll('[data-account-mode]')) {
     };
     select.addEventListener('change', update); update();
 }
+for (const form of document.querySelectorAll('[data-language-auto-submit]')) {
+    form.querySelector('select[name="language"]')?.addEventListener('change', () => form.requestSubmit());
+}

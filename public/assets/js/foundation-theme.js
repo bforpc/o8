@@ -7,6 +7,8 @@ catch { preferences = null; }
 const legacyMode = document.cookie.split('; ').find(value => value.startsWith('o8_theme_mode='))?.split('=')[1];
 let theme = normalizeTheme(preferences?.theme ?? rememberedTheme() ?? (legacyMode ? { mode: legacyMode } : DEFAULT_THEME));
 const isOverlay = body.classList.contains('overlay-page');
+const languageSavedNotice=document.querySelector('[data-language-saved]');
+if (languageSavedNotice) setTimeout(() => { languageSavedNotice.hidden = true; }, 5000);
 
 function display(settings) {
     applyTheme(settings);

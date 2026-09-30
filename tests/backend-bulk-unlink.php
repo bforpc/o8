@@ -34,6 +34,8 @@ check($trashSearch['total']===1 && $trashSearch['trashCount']===1 && $trashSearc
 check($docs->listing($a,['scope'=>(string)$parent,'query'=>'Searchable trash','folderCounts'=>'1'])['total']===0,'trash links never repopulate an empty folder during search');
 linkDocument($direct,$parent); linkDocument($direct,$child); linkDocument($direct,$other); linkDocument($nested,$child);
 check($docs->listing($a,['scope'=>(string)$parent])['total']===1,'parent displays only its direct document');
+check($docs->listing($a,['scope'=>(string)$parent,'query'=>'Only child'])['total']===1,'search in parent includes matching documents from descendant folders');
+check($docs->listing($a,['scope'=>(string)$parent,'query'=>'Only child','folderCounts'=>'1'])['folderCounts'][$parent]===0 && $docs->listing($a,['scope'=>(string)$parent,'query'=>'Only child','folderCounts'=>'1'])['folderCounts'][$child]===1,'folder-scoped search updates direct result counts without propagating child matches into the parent count');
 check($docs->folderCounts($a)[$parent]===1 && $docs->folderCounts($a)[$child]===2,'counts use direct links only');
 $filtered=$docs->listing($a,['scope'=>'all','query'=>'Only child','folderCounts'=>'1']);
 check($filtered['folderCounts'][$parent]===0 && $filtered['folderCounts'][$child]===1,'search counts do not propagate to ancestors');

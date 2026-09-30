@@ -22,8 +22,9 @@ test('inline symbol geometry exactly matches the pinned SVG originals and every 
     const manifest=JSON.parse(read('public/assets/vendor/feather/provenance.json'));
     const sprite=read('app/views/icons.php');
     const symbols=new Map([...sprite.matchAll(/<symbol id="([^"]+)"[^>]*>([\s\S]*?)<\/symbol>/g)].map(m=>[m[1],m[2]]));
-    assert.equal(symbols.size,22);
+    assert.equal(symbols.size,23);
     assert.ok(symbols.has('i-tag'));
+    assert.ok(symbols.has('i-table'));
     for(const file of manifest.files.filter(file=>file.id)){
         const svg=read('public/assets/vendor/feather/'+file.path);
         assert.equal(symbols.get(file.id),svg.match(/<svg[^>]*>([\s\S]*?)<\/svg>/)[1]);

@@ -30,7 +30,7 @@
 <?php if (!$actor && !$fatal && !$installed) require __DIR__.'/language-picker.php'; ?>
 <?php if ($error): ?><div role="alert" class="alert alert-danger"><?= h($error) ?></div><?php endif ?>
 <?php if ($fatal && $setupDiagnostics): ?><section class="card foundation-panel mb-3"><div class="card-body p-4"><h2 class="h5"><?= h(tr('setup.diagnosticsTitle')) ?></h2><p class="small text-body-secondary"><?= h(tr('setup.diagnosticsPrivacy')) ?></p><dl class="mb-0"><?php foreach ($setupDiagnostics as $diagnostic): ?><div class="mb-2"><dt class="small text-body-secondary"><?= h(O8\Core\Languages::display($languageCatalog,$language,$diagnostic['Prüfung'])) ?></dt><dd class="mb-0"><?= h(O8\Core\Languages::display($languageCatalog,$language,$diagnostic['Ergebnis'])) ?></dd></div><?php endforeach ?></dl></div></section><?php endif ?>
-<?php if ($message): ?><div role="status" class="alert alert-success"><?= h($message) ?></div><?php endif ?>
+<?php if ($message): ?><div role="status" class="alert alert-success"<?= !$actor && $message===tr('language.saved')?' data-language-saved':'' ?>><?= h($message) ?></div><?php endif ?>
 <?php if (!$fatal): ?>
 <section class="card foundation-panel"><div class="card-body p-4">
 <?php if (!$installed): ?>
@@ -45,12 +45,12 @@
 <button class="btn btn-primary mt-2"><?= h(tr('setup.start')) ?></button></form>
 <?php elseif (!$actor): ?>
 <h2 class="h4"><?= h(tr($operatorLogin?'auth.operatorLogin':'auth.loginTitle')) ?></h2>
-<p><?= h(tr($operatorLogin?'auth.operatorDescription':'auth.accountDescription')) ?></p>
+<?php if ($operatorLogin): ?><p><?= h(tr('auth.operatorDescription')) ?></p><?php endif ?>
 <form method="post" id="foundationLoginForm"><input type="hidden" name="csrf" value="<?= h($_SESSION['csrf']) ?>"><input type="hidden" name="action" value="login"><input type="hidden" name="kind" value="<?= $operatorLogin?'operator':'account' ?>">
-<label class="form-label d-block"><?= h(tr($operatorLogin?'auth.operatorUser':'auth.username')) ?><input class="form-control" name="login" autocomplete="username" required></label>
+<label class="form-label d-block"><?= h(tr($operatorLogin?'auth.operatorUser':'auth.username')) ?><input class="form-control" name="login" autocomplete="username" autofocus required></label>
 <label class="form-label d-block"><?= h(tr('auth.password')) ?><input class="form-control" type="password" name="password" autocomplete="current-password" required></label>
 <?php if ($operatorLogin): ?><details class="mb-3"><summary><?= h(tr('auth.firstSetupCode')) ?></summary><label class="form-label d-block mt-2"><?= h(tr('auth.setupCodeOnly')) ?><input class="form-control" type="password" name="setup_token" autocomplete="off"></label></details><?php endif ?></form>
-<?php $languagePickerInline=true; require __DIR__.'/language-picker.php'; unset($languagePickerInline); ?>
+<?php $languagePickerInline=true; $languagePickerAutoSubmit=true; require __DIR__.'/language-picker.php'; unset($languagePickerInline,$languagePickerAutoSubmit); ?>
 <button class="btn btn-primary mt-2" type="submit" form="foundationLoginForm"><?= h(tr('common.login')) ?></button>
 <p class="mt-4 mb-0"><a href="<?= $operatorLogin?'?':'?login=operator' ?>"><?= h(tr($operatorLogin?'auth.normalLink':'auth.operatorLink')) ?></a></p>
 <?php elseif ($actor->row['must_change_password']): ?>

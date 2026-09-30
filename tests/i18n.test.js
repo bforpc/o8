@@ -34,8 +34,18 @@ test('DMS search actions and advanced-search captions use shared translations',(
 
 test('login language picker is placed between credentials and the login action',()=>{
     const view=fs.readFileSync(new URL('../app/views/foundation.php',import.meta.url),'utf8');
-    assert.match(view,/<input class="form-control" type="password" name="password"[\s\S]*?<\/form>[\s\S]*?\$languagePickerInline=true; require __DIR__\.'\/language-picker.php'[\s\S]*?form="foundationLoginForm"/);
-    assert.match(fs.readFileSync(new URL('../app/views/language-picker.php',import.meta.url),'utf8'),/language-picker-inline/);
+    const picker=fs.readFileSync(new URL('../app/views/language-picker.php',import.meta.url),'utf8');
+    const accountContext=fs.readFileSync(new URL('../public/assets/js/account-context.js',import.meta.url),'utf8');
+    assert.match(view,/<input class="form-control" type="password" name="password"[\s\S]*?<\/form>[\s\S]*?\$languagePickerInline=true; \$languagePickerAutoSubmit=true; require __DIR__\.'\/language-picker.php'[\s\S]*?form="foundationLoginForm"/);
+    assert.match(view,/<input class="form-control" name="login" autocomplete="username" autofocus required>/);
+    assert.match(picker,/data-language-auto-submit/);
+    assert.match(picker,/if \(empty\(\$languagePickerAutoSubmit\)\).*common\.save/s);
+    assert.match(accountContext,/\[data-language-auto-submit\][\s\S]*?requestSubmit\(\)/);
+    assert.doesNotMatch(view,/auth\.accountDescription/);
+    assert.match(view,/!\$actor && \$message===tr\('language\.saved'\)\?' data-language-saved':''/);
+    assert.match(fs.readFileSync(new URL('../public/assets/js/foundation-theme.js',import.meta.url),'utf8'),/data-language-saved[\s\S]*?\}, 5000\)/);
+    assert.match(fs.readFileSync(new URL('../public/assets/js/live-workspace.js',import.meta.url),'utf8'),/body\.dataset\.languageUpdated === '1'\) \{ location\.reload\(\)/);
+    assert.match(fs.readFileSync(new URL('../app/foundation.php',import.meta.url),'utf8'),/\$languageChanged && field\('section'\)==='account'/);
     const styles=fs.readFileSync(new URL('../public/assets/css/foundation.css',import.meta.url),'utf8');
     assert.match(styles,/\.language-picker-inline \{[^}]*flex-wrap: nowrap/);
     assert.match(styles,/\.language-picker-inline \.btn \{ flex: 0 0 auto; white-space: nowrap; \}/);

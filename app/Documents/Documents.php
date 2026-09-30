@@ -312,8 +312,9 @@ final class Documents
         if ($scope==='unfiled') $where.=' AND NOT EXISTS (SELECT 1 FROM folder_documents fd WHERE fd.tenant_id=d.tenant_id AND fd.document_id=d.id)';
         if (ctype_digit($scope)) {
             $this->folder($actor,(int)$scope);
-            $where.=' AND EXISTS (SELECT 1 FROM folder_documents fd WHERE fd.tenant_id=d.tenant_id AND fd.document_id=d.id AND fd.folder_id=?)';
-            $params[]=(int)$scope;
+            $folderIds=$searching?$this->folderSubtreeIds($actor,(int)$scope):[(int)$scope];
+            $where.=' AND EXISTS (SELECT 1 FROM folder_documents fd WHERE fd.tenant_id=d.tenant_id AND fd.document_id=d.id AND fd.folder_id IN ('.implode(',',array_fill(0,count($folderIds),'?')).'))';
+            array_push($params,...$folderIds);
         }
         foreach (preg_split('/\s+/u',$query,-1,PREG_SPLIT_NO_EMPTY) as $term) {
             if (preg_match('/^D([0-9]+)$/iD',$term,$m)) { $where.=' AND d.id=?'; $params[]=$m[1]; continue; }
@@ -501,6 +502,18 @@ final class Documents
             if (isset($sets[$folderId])) $sets[$folderId][$documentId]=true;
         }
         return array_map('count',$sets);
+    }
+    private function folderSubtreeIds(Actor $actor,int $root): array
+    {
+        $children=[];
+        foreach ($this->folders($actor) as $folder) $children[$folder['parent_id']===null?'root':(string)$folder['parent_id']][]=(int)$folder['id'];
+        $ids=[]; $seen=[]; $pending=[$root];
+        while ($pending) {
+            $id=array_pop($pending); if (isset($seen[$id])) continue;
+            $seen[$id]=true; $ids[]=$id;
+            foreach ($children[(string)$id]??[] as $child) $pending[]=$child;
+        }
+        return $ids;
     }
     public function trashCount(Actor $actor): int
     {

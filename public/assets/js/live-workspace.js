@@ -15,7 +15,7 @@ const searchTr = (key,values={}) => window.o8Translate ? window.o8Translate(`sea
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const dateLabel = value => /^\d{4}-\d{2}-\d{2}$/.test(String(value ?? '')) ? `${value.slice(8,10)}.${value.slice(5,7)}.${value.slice(0,4)}` : (value || tr('noDate'));
 const grossLabel = doc => doc.gross_amount === null || doc.gross_amount === undefined ? '' : new Intl.NumberFormat('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(doc.gross_amount)) + ' ' + doc.currency;
-const state = { scope: 'inbox', localScope: 'inbox', searchMode: 'global', page: 1, document: null, meta: null, filteredFolderCounts: null, filteredInboxCount: null, filteredAllCount: null, filteredTrashCount: null, dirty: false, querySequence: 0, documentSequence: 0, lastQuerySearch: false, selected: new Set(), inboundSelected: new Set(), rows: [] };
+const state = { scope: 'all', page: 1, document: null, meta: null, filteredFolderCounts: null, filteredInboxCount: null, filteredAllCount: null, filteredTrashCount: null, dirty: false, querySequence: 0, documentSequence: 0, lastQuerySearch: false, selected: new Set(), inboundSelected: new Set(), rows: [] };
 let picker, bulkPicker, invoiceEditor, layout, preferences = { widths: [18,27,29,26], mode: 'system', pageSize:50, theme: structuredClone(DEFAULT_THEME) }, pending = 0, waitTimer, writing = false, suppressWaiting = false;
 const searchTagPickers = {};
 let collapsedFolderIds=new Set(), preferenceQueue=Promise.resolve();
@@ -175,13 +175,6 @@ function clearDocument() {
 function hasActiveSearch(input = searchFormInput()) {
     return Boolean(input.query?.trim() || ['dateFrom','dateTo','amountFrom','amountTo','invoiceNumbers','accountCode','documentType','tag','notTag','owner','includeExpired','includeNotSearchable'].some(key => input[key]) || input.resultView === 'latest');
 }
-function syncSearchScopeToggle() {
-    const local = state.searchMode === 'local';
-    const button = $('searchScopeToggle');
-    button.textContent = local ? searchTr('localShort') : searchTr('global');
-    button.setAttribute('aria-label', searchTr('scope',{scope:local?searchTr('local'):searchTr('global')}));
-    button.setAttribute('aria-pressed', local ? 'true' : 'false');
-}
 async function search() {
     hideTagsTooltip();
     const sequence = ++state.querySequence;
@@ -206,9 +199,10 @@ async function search() {
             state.filteredTrashCount = result.trashCount;
             state.filteredUnfiledCount = result.unfiledCount;
             state.filteredAllCount = Math.max(0, Number(result.total) - Number(result.trashCount || 0));
-        } else if (filtered && state.searchMode === 'local') {
-            if (/^\d+$/.test(String(state.scope))) state.filteredFolderCounts = {[state.scope]: Number(result.total)};
-            else if (state.scope === 'inbox') state.filteredInboxCount = Number(result.total)+inbound.length;
+        } else if (filtered && /^\d+$/.test(String(state.scope))) {
+            state.filteredFolderCounts = result.folderCounts;
+        } else if (filtered) {
+            if (state.scope === 'inbox') state.filteredInboxCount = Number(result.total)+inbound.length;
             else if (state.scope === 'trash') state.filteredTrashCount = Number(result.total);
             else if (state.scope === 'unfiled') state.filteredUnfiledCount = Number(result.total);
         }
@@ -361,8 +355,7 @@ $('folderNavigationDesktop').addEventListener('click',async event => {
     const button = event.target.closest('[data-scope]');
     if (button && await discard()) {
         flashActiveSearch();
-        state.dirty = false; state.localScope = button.dataset.scope; state.page = 1;
-        state.scope = hasActiveSearch() && state.searchMode === 'global' ? 'all' : state.localScope;
+        state.dirty = false; state.scope = button.dataset.scope; state.page = 1;
         clearDocument(); await search();
     }
     const edit = event.target.closest('[data-edit-folder]');
@@ -547,25 +540,36 @@ const folderTreeIds = folderId => {
     const descendants=new Set(), visit=parent=>state.meta.folders.filter(folder=>String(folder.parent_id)===String(parent)).forEach(folder=>{const id=String(folder.id);if(descendants.has(id))return;descendants.add(id);visit(id);});
     visit(folderId); return descendants;
 };
+const expandFolderForDrag = id => {
+    const expanded=new Set(collapsedFolderIds);
+    expanded.delete(String(id));
+    for (const descendant of folderTreeIds(id)) expanded.delete(descendant);
+    const changed=expanded.size!==collapsedFolderIds.size || [...expanded].some(value=>!collapsedFolderIds.has(value));
+    collapsedFolderIds=expanded;
+    if (changed) folders();
+    return folderNav.querySelector(`[data-drop-folder="${id}"]`);
+};
 const restoreDragFolderExpansion = () => {
     if (!dragCollapsedSnapshot) return;
     collapsedFolderIds=new Set(dragCollapsedSnapshot); dragCollapsedSnapshot=null; dragExpandedFolder=null; folders();
 };
 const syncDragFolderExpansion = folder => {
     const id=folder?String(folder.dataset.dropFolder):null;
-    if (!id || !state.meta.folders.some(item=>String(item.parent_id)===id)) {
+    if (!id) {
         if (dragCollapsedSnapshot) restoreDragFolderExpansion();
-        return id?folderNav.querySelector(`[data-drop-folder="${id}"]`):null;
+        return null;
     }
-    if (dragExpandedFolder===id) return folderNav.querySelector(`[data-drop-folder="${id}"]`);
-    if (!dragCollapsedSnapshot) dragCollapsedSnapshot=new Set(collapsedFolderIds);
-    const expanded=new Set(dragCollapsedSnapshot);
-    expanded.delete(id);
-    for (const descendant of folderTreeIds(id)) expanded.delete(descendant);
-    const changed=expanded.size!==collapsedFolderIds.size || [...expanded].some(value=>!collapsedFolderIds.has(value));
-    collapsedFolderIds=expanded; dragExpandedFolder=id;
-    if (changed) folders();
-    return folderNav.querySelector(`[data-drop-folder="${id}"]`);
+    const insideExpandedTree=dragCollapsedSnapshot && dragExpandedFolder && (id===dragExpandedFolder || folderTreeIds(dragExpandedFolder).has(id));
+    if (dragCollapsedSnapshot && !insideExpandedTree) restoreDragFolderExpansion();
+    let target=folderNav.querySelector(`[data-drop-folder="${id}"]`);
+    if (!target) return null;
+    const hasChildren=state.meta.folders.some(item=>String(item.parent_id)===id);
+    if (!hasChildren) return target;
+    if (!dragCollapsedSnapshot) {
+        dragCollapsedSnapshot=new Set(collapsedFolderIds);
+        dragExpandedFolder=id;
+    }
+    return expandFolderForDrag(id);
 };
 const folderAt = (x,y) => {
     for (const candidate of folderNav.querySelectorAll('[data-drop-folder]')) {
@@ -619,7 +623,15 @@ async function handleFolderDrop(ids,targetFolderId,kind='document') {
     const count=ids.length===1 ? 'Dokument' : `${ids.length} ausgewählte Dokumente`;
     let mode='copy';
     if (sourceFolder && sourceFolderId!==targetFolderId) {
-        mode=await choiceDialog('Dokumente ablegen',`${count} nach „${folderName}“ kopieren oder aus „${sourceFolder.name}“ dorthin verschieben? Beim Verschieben bleiben weitere Ordnerverknüpfungen erhalten.`,'Kopieren','copy','Verschieben','move');
+        const documentName=state.rows.find(row=>!row._inbound&&Number(row.id)===ids[0])?.title || clientTr('documentSingular');
+        const prompt=[
+            {text:ids.length===1?clientTr('dropSingleFrom',{name:documentName}):clientTr('dropMultipleFrom',{count:ids.length})},
+            {text:folderPath(sourceFolder),emphasis:true},
+            {text:clientTr('dropAfterSource')},
+            {text:folderPath(targetFolder),emphasis:true},
+            {text:clientTr('dropCopyOrMoveQuestion')}
+        ];
+        mode=await choiceDialog(clientTr('dropDocuments'),prompt,'Kopieren','copy','Verschieben','move');
     } else if (state.scope==='inbox') {
         mode=(await confirmDialog('Aus Eingang verschieben',`${count} aus dem Eingang in „${folderName}“ verschieben? Danach erscheinen die Dokumente unter „Alle Dokumente“.`,'Verschieben')) ? 'copy' : false;
     } else {
@@ -724,7 +736,6 @@ $('folderDelete').addEventListener('click',async () => {
         if (!(await confirmDialog('Ordner und Unterordner löschen?',message,'Ordner löschen',true))) return;
         if (await write('folder',{id,operation:'delete',confirm:'yes',fingerprint:preview.fingerprint},'Ordner gelöscht.')) {
             bootstrap.Modal.getInstance($('folderModal')).hide(); await metadata();
-            if (!['all','inbox','unfiled','trash'].includes(String(state.localScope)) && !state.meta.folders.some(x => String(x.id) === String(state.localScope))) state.localScope='all';
             if (!['all','inbox','unfiled','trash'].includes(String(state.scope)) && !state.meta.folders.some(x => String(x.id) === String(state.scope))) state.scope='all';
             await search();
         }
@@ -739,18 +750,9 @@ async function runSearchFromForm() {
     if (!(await discard())) return;
     state.dirty = false;
     state.page = 1;
-    if (hasActiveSearch()) state.scope = state.searchMode === 'global' ? 'all' : state.localScope;
     await search();
 }
 const queryInput = $('searchForm').elements.query;
-syncSearchScopeToggle();
-$('searchScopeToggle').addEventListener('click',async () => {
-    if (!(await discard())) return;
-    state.dirty = false;
-    state.searchMode = state.searchMode === 'global' ? 'local' : 'global';
-    syncSearchScopeToggle();
-    if (hasActiveSearch()) { state.page = 1; state.scope = state.searchMode === 'global' ? 'all' : state.localScope; await search(); }
-});
 queryInput.addEventListener('input',event => {
     cancelAutoSearch();
     const value = event.currentTarget.value.trim();
@@ -762,7 +764,7 @@ queryInput.addEventListener('input',event => {
     }, 300);
 });
 $('searchForm').addEventListener('submit',async event => { event.preventDefault(); await runSearchFromForm(); });
-$('resetSearch').addEventListener('click',async () => { cancelAutoSearch(); if (await discard()) { $('searchForm').reset(); for(const searchPicker of Object.values(searchTagPickers)) for(const name of searchPicker.values()) searchPicker.toggle(name); syncPageSizeControls(); state.dirty = false; state.page = 1; state.scope = state.localScope; search(); } });
+$('resetSearch').addEventListener('click',async () => { cancelAutoSearch(); if (await discard()) { $('searchForm').reset(); for(const searchPicker of Object.values(searchTagPickers)) for(const name of searchPicker.values()) searchPicker.toggle(name); syncPageSizeControls(); state.dirty = false; state.page = 1; state.scope = 'all'; search(); } });
 $('previousResults').addEventListener('click',async () => { if (await discard()) { state.dirty = false; --state.page; search(); } });
 $('nextResults').addEventListener('click',async () => { if (await discard()) { state.dirty = false; ++state.page; search(); } });
 $('pageSizeSelect').addEventListener('change',event=>changePageSize(event.currentTarget.value));
@@ -796,6 +798,7 @@ adminFrame.addEventListener('load',() => {
     try {
         const body = adminFrame.contentDocument?.body;
         if (!body?.classList.contains('overlay-page')) { location.reload(); return; }
+        if (body.dataset.languageUpdated === '1') { location.reload(); return; }
         if (body.dataset.overlayComplete === '1' || (body.dataset.overlayContext && body.dataset.overlayContext !== root.dataset.context)) { location.reload(); return; }
         if (body.dataset.overlayCsrf) {
             root.dataset.csrf = body.dataset.overlayCsrf;
@@ -859,7 +862,7 @@ $('uploadForm').addEventListener('submit',async event => {
     finally {
         writing = false; $('uploadSubmit').disabled = false; $('uploadFiles').disabled = false;
         if (completed === files.length) bootstrap.Modal.getInstance($('uploadModal')).hide();
-        if (completed) { state.scope = 'inbox'; state.localScope = 'inbox'; state.page = 1; await metadata(); await search(); }
+        if (completed) { state.scope = 'inbox'; state.page = 1; await metadata(); await search(); }
     }
 });
 
@@ -913,7 +916,7 @@ function renderSourceJob(job,manual=false) {
 async function finishSourceJob(job) {
     const successful=job.status==='completed' && !job.error_code;
     if (!successful) { await metadata(); return; }
-    state.scope='inbox'; state.localScope='inbox'; state.page=1;
+    state.scope='inbox'; state.page=1;
     bootstrap.Modal.getOrCreateInstance($('sourceFetchModal')).hide();
     await metadata(); await search(); notice(job.total_count+' Dokument(e) in den Eingang übernommen.');
 }

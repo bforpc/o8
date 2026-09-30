@@ -13,6 +13,17 @@ test('live and account flows do not call native alert, confirm, or prompt', () =
     }
 });
 
+test('folder move/copy confirmation shows complete paths and emphasizes the destination safely', () => {
+    const source=read('live-workspace.js');
+    const dialog=read('dialog.js');
+    assert.match(source,/function folderPath\(folder, separator = ' \/ '\)/);
+    assert.match(source,/\{text:folderPath\(sourceFolder\),emphasis:true\}/);
+    assert.match(source,/\{text:folderPath\(targetFolder\),emphasis:true\}/);
+    assert.match(dialog,/if \(Array\.isArray\(message\)\)/);
+    assert.match(dialog,/line\.emphasis\?document\.createElement\('strong'\)/);
+    assert.match(dialog,/content\.textContent=display\(line\.text\)/);
+});
+
 test('trash management confirms permanent deletion and shows bounded progress', () => {
     const source = read('live-workspace.js');
     const view = readProject('app/views/live-workspace.php');
@@ -61,7 +72,7 @@ test('live drag and drop keeps checkbox selection and uses atomic bulk linking',
     assert.match(source, /document-drag-preview/);
     assert.doesNotMatch(source, /event\.dataTransfer/);
     assert.match(source, /folderAction:mode==='move'\?'move':'add'/);
-    assert.match(source, /choiceDialog\('Dokumente ablegen'/);
+    assert.match(source, /choiceDialog\(clientTr\('dropDocuments'\),prompt/);
     assert.match(source, /sourceFolderId:mode==='move'\?String\(sourceFolderId\):''/);
     assert.match(source, /handleFolderDrop\(drag\.ids,targetFolderId,drag\.kind\)/);
     assert.match(source, /data-drag-inbound/);
@@ -79,21 +90,30 @@ test('folder tree expansion is saved per-user and temporary drag expansion is re
     assert.match(source,/countOverride=isCollapsed\?subtreeFolderCount\(id\):null/);
     assert.match(source,/dragCollapsedSnapshot=new Set\(collapsedFolderIds\)/);
     assert.match(source,/const restoreDragFolderExpansion = \(\) =>/);
+    assert.match(source,/insideExpandedTree=dragCollapsedSnapshot && dragExpandedFolder && \(id===dragExpandedFolder \|\| folderTreeIds\(dragExpandedFolder\)\.has\(id\)\)/);
+    assert.match(source,/if \(!hasChildren\) return target/);
+    assert.match(source,/const expandFolderForDrag = id =>/);
     assert.match(source,/restoreDragFolderExpansion\(\); clearDropTarget\(\)/);
     assert.match(backend,/SELECT COUNT\(\*\) FROM folders WHERE tenant_id=\? AND id IN/);
     assert.match(css,/\.folder-nav-row\[hidden\] \{ display: none !important; \}/);
 });
 
-test('live search switches between global and current-folder scope and keeps view-only details compact', () => {
+test('live search uses the selected folder and keeps view-only details compact', () => {
     const source = read('live-workspace.js');
-    assert.match(source, /searchMode: 'global'/);
-    assert.match(source, /localScope: 'inbox'/);
-    assert.match(source, /state\.searchMode === 'global' \? 'all' : state\.localScope/);
-    assert.match(source, /button\.textContent = local \? searchTr\('localShort'\) : searchTr\('global'\)/);
-    assert.match(source, /state\.localScope = button\.dataset\.scope/);
-    assert.match(source, /state\.scope = hasActiveSearch\(\) && state\.searchMode === 'global' \? 'all' : state\.localScope/);
-    assert.doesNotMatch(source, /if \(hasActiveSearch\(\)\) \{ state\.searchMode = 'local'/);
-    assert.match(source, /state\.filteredFolderCounts = \{\[state\.scope\]: Number\(result\.total\)\}/);
+    const view = readProject('app/views/live-workspace.php');
+    const backend = readProject('app/Documents/Documents.php');
+    const css = readProject('public/assets/css/live.css');
+    assert.doesNotMatch(source, /searchMode|localScope|searchScopeToggle/);
+    assert.doesNotMatch(view, /searchScopeToggle|search-scope-toggle/);
+    assert.match(source, /state\.scope = button\.dataset\.scope/);
+    assert.match(source, /const state = \{ scope: 'all'/);
+    assert.match(source, /state\.scope = 'all'; search\(\)/);
+    assert.match(source, /String\(state\.scope\) === String\(scope\) \? 'active '/);
+    assert.match(source, /state\.filteredFolderCounts = result\.folderCounts/);
+    assert.match(backend, /folderSubtreeIds\(\$actor,\(int\)\$scope\)/);
+    assert.match(backend, /private function folderSubtreeIds\(/);
+    assert.match(css, /\.folder-navigation \.folder-nav-item\.active[^\n]*box-shadow/);
+    assert.match(view, /id="resetColumns"[^>]*aria-label="<\?= h\(tr\('search\.resetColumns'\)\) \?>"[^>]*title="<\?= h\(tr\('search\.resetColumns'\)\) \?>"[^>]*><svg[^>]*><use href="#i-table"\/><\/svg><\/button>/);
     assert.match(source, /queryInput\.addEventListener\('input'/);
     assert.match(source, /\[\.\.\.value\]\.length < 3/);
     assert.match(source, /}, 300\);/);
@@ -116,7 +136,7 @@ test('remote source selection queues a background fetch and polls bounded progre
     assert.match(source, /api\('sourceJob',\{id\}\)/);
     assert.match(source, /sourcePollTimer=setTimeout\(\(\)=>pollSourceJob\(id\),2000\)/);
     assert.match(source, /job\.status==='completed' && !job\.error_code/);
-    assert.match(source, /state\.scope='inbox'; state\.localScope='inbox'; state\.page=1/);
+    assert.match(source, /state\.scope='inbox'; state\.page=1/);
     assert.match(source, /getOrCreateInstance\(\$\('sourceFetchModal'\)\)\.hide\(\)/);
     assert.match(view, /id="sourceSelectAll"/);
     assert.match(view, /id="sourceSelectAll"[^>]*hidden/);

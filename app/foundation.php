@@ -146,10 +146,14 @@ try {
             $action=field('action');
             if ($action==='language_save') {
                 $selected=O8\Core\Languages::selected($languageCatalog,field('language'));
+                $languageChanged=$selected!==$language;
                 setcookie('o8_language',$selected,['expires'=>time()+31536000,'path'=>parse_url($_SERVER['SCRIPT_NAME']??'/',PHP_URL_PATH)?:'/','secure'=>$secure,'httponly'=>true,'samesite'=>'Lax']);
                 $_SESSION['flash']=O8\Core\Languages::text($languageCatalog,$selected,'language.saved');
                 $destination=in_array(field('section'),['account'],true)?'?section=account':'';
-                if (field('overlay')==='1') $destination.=($destination===''?'?':'&').'overlay=1';
+                if (field('overlay')==='1') {
+                    $destination.=($destination===''?'?':'&').'overlay=1';
+                    if ($languageChanged && field('section')==='account') $destination.='&language_saved=1';
+                }
                 header('Location: '.($_SERVER['SCRIPT_NAME']??'index.php').$destination,true,303); exit;
             }
             if (in_array($action,['user_create','user_update','user_invite','accounting_save','session_timeout_save','tag_create','tag_rename','tag_delete','trash_retention_save','source_save','source_delete','source_test','ai_configuration_save','ai_models_refresh'],true) && (!$actor || $actor->kind!=='tenant' || !hash_equals($_SESSION['actor']['context_token']??'',field('context_token')) || field('context_token')==='')) throw new RuntimeException('Mandantenkontext geändert. Bitte die Seite neu laden.');
