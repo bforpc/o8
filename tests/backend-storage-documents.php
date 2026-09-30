@@ -163,6 +163,8 @@ check($savedInvoice['invoice']['number']==='BK-2026-1' && $savedInvoice['invoice
 $evaluation=new Evaluation($db); $period=['dateFrom'=>'2026-09-01','dateTo'=>'2026-09-30'];
 $summary=$evaluation->bookingSummary($a,$period);
 check(count($summary['months'])===1 && (int)$summary['months']['2026-09']['document_count']===2 && abs($summary['currencies']['EUR']['gross']-148.15)<0.001,'monthly evaluation returns stored EUR booking totals and document count');
+$summaryDocuments=array_column($summary['months']['2026-09']['documents'],null,'id');
+check(count($summaryDocuments)===2 && $summaryDocuments[$id]['date']==='2026-09-17' && (float)$summaryDocuments[$id]['gross']===119.0 && in_array('Invoice',$summaryDocuments[$id]['tags'],true),'monthly evaluation output includes document date, gross amount and tags');
 check(abs($evaluation->bookingSummary($a,[])['currencies']['EUR']['gross']-148.15)<0.001,'evaluation needs neither date bound');
 check(abs($evaluation->bookingSummary($a,['dateFrom'=>'2026-09-01'])['currencies']['EUR']['gross']-148.15)<0.001 && abs($evaluation->bookingSummary($a,['dateTo'=>'2026-09-30'])['currencies']['EUR']['gross']-148.15)<0.001,'evaluation accepts either date bound alone');
 check(abs($evaluation->bookingSummary($a,$period+['accounts'=>[$accountingAccount]])['currencies']['EUR']['gross']-29.15)<0.001,'evaluation account filter selects only matching bookings');
@@ -217,6 +219,8 @@ rejects(fn()=>$docs->link($a,$id,2,$foreignFolder,false),'foreign folder linking
 rejects(fn()=>$docs->link($u,$own,1,$folder,false),'user cannot link into another owners folder');
 $docs->link($a,$id,(int)$doc['revision'],$folder,false);
 check($docs->listing($a,['scope'=>(string)$folder])['total']===1,'multiple nested links do not duplicate document');
+$folderSummary=$evaluation->bookingSummary($a,['folder'=>(string)$folder]);
+check($folderSummary['months']['2026-09']['documents'][0]['folders']===['Folder A'],'evaluation document output includes directly linked folder path');
 $display=$docs->listing($a,['scope'=>(string)$folder])['rows'][0];
 check((int)$display['folder_count']===2 && $display['tag_names']===['Invoice'] && ($docs->folderCounts($a)[$folder]??0)===1,'list badges count direct links and all tags while parent count stays distinct');
 check($evaluation->bookingSummary($a,['folder'=>(string)$folder])['selectedTotal']===1 && abs($evaluation->bookingSummary($a,['folder'=>(string)$folder])['currencies']['EUR']['gross']-119)<0.001,'evaluation folder counts a directly linked booking once despite multiple folder links');

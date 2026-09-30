@@ -57,9 +57,18 @@ $renderFolderTree=function(int $parent) use (&$renderFolderTree,&$folderChildren
 <?php foreach ($months as $month=>$data): ?>
 <section class="evaluation-month"><header><h2 class="h6"><?= h(substr($month,5,2).'/'.substr($month,0,4)) ?></h2><span class="evaluation-month-count"><?= (int)$data['document_count'] ?> <?= h(tr('search.monthDocuments')) ?></span></header><div class="table-responsive"><table class="table table-sm"><thead><tr><th><?= h(tr('search.account')) ?></th><?php foreach (array_keys($data['currencies']) as $currency): ?><th class="text-end"><?= h(tr('search.grossCurrency',['currency'=>$currency])) ?></th><?php endforeach ?></tr></thead><tbody>
 <?php foreach (array_column($data['accounts'],null,'id') as $account): ?><tr><th><span><?= h($account['code']) ?></span><small class="d-block text-body-secondary"><?= h($account['name']) ?></small></th><?php foreach (array_keys($data['currencies']) as $currency): ?><td class="text-end"><?= h(number_format($data['gross'][$account['id'].'_'.$currency]??0,2,',','.')) ?></td><?php endforeach ?></tr><?php endforeach ?>
-</tbody></table></div></section>
+</tbody></table></div>
+<details class="evaluation-document-details">
+<summary><span><?= h(tr('search.evaluationDocuments')) ?></span><span class="evaluation-document-count"><?= count($data['documents']??[]) ?></span></summary>
+<div class="table-responsive"><table class="table table-sm evaluation-document-table"><thead><tr><th><?= h(tr('search.evaluationDate')) ?></th><th><?= h(tr('search.evaluationDescription')) ?></th><th><?= h(tr('search.evaluationTags')) ?></th><th><?= h(tr('search.evaluationFolders')) ?></th><th class="text-end"><?= h(tr('search.gross')) ?></th></tr></thead><tbody>
+<?php foreach ($data['documents']??[] as $document): $dateValue=(string)($document['date']??''); $dateObject=$dateValue!==''?\DateTimeImmutable::createFromFormat('!Y-m-d',substr($dateValue,0,10)):false; $dateText=$dateObject?$dateObject->format('d.m.Y'):''; ?>
+<tr><td class="text-nowrap"><?= h($dateText) ?></td><td><button type="button" class="btn btn-link evaluation-document-open" data-bs-toggle="modal" data-bs-target="#evaluationDocumentModal" data-document-id="<?= (int)$document['id'] ?>" data-document-title="<?= h($document['title']) ?>" aria-label="<?= h(tr('search.evaluationPreview',['id'=>(int)$document['id']])) ?>"><?= h($document['title']) ?></button></td><td><?= $document['tags']?h(implode(', ',$document['tags'])):'<span class="text-body-secondary">—</span>' ?></td><td><?php if ($document['folders']): ?><?= implode('<br>',array_map('h',$document['folders'])) ?><?php else: ?><span class="text-body-secondary">—</span><?php endif ?></td><td class="text-end text-nowrap fw-medium"><?= h(number_format((float)$document['gross'],2,',','.').' '.(string)$document['currency']) ?></td></tr>
+<?php endforeach ?>
+</tbody></table></div>
+</details></section>
 <?php endforeach ?>
 </div>
+<div class="modal fade" id="evaluationDocumentModal" tabindex="-1" aria-labelledby="evaluationDocumentModalTitle" aria-hidden="true"><div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h2 class="modal-title h5" id="evaluationDocumentModalTitle"><?= h(tr('search.evaluationPreviewTitle')) ?></h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="<?= h(tr('common.close')) ?>"></button></div><div class="modal-body p-0"><iframe class="evaluation-document-preview" title="<?= h(tr('search.evaluationPreviewTitle')) ?>" loading="lazy"></iframe></div></div></div></div>
 <?php endif ?>
 <?php endif ?>
 </section>

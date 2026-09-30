@@ -256,8 +256,17 @@ with sync_playwright() as p:
     expect(frame.locator('.evaluation-totals')).to_contain_text('119,00')
     expect(frame.locator('.evaluation-month-list')).to_be_visible()
     expect(frame.locator('.evaluation-month')).to_contain_text('1 Dok.')
-    assert page.locator('#documentWorkspace').bounding_box()==before
+    month_documents=frame.locator('.evaluation-document-details').first
+    month_documents.locator('summary').click()
+    expect(month_documents.locator('.evaluation-document-table tbody tr').first).to_be_visible()
+    expect(month_documents.locator('.evaluation-document-table thead')).to_contain_text('Datum')
+    expect(month_documents.locator('.evaluation-document-table thead')).to_contain_text('Beschreibung')
+    preview_button=month_documents.locator('.evaluation-document-open').first
+    preview_button.click()
+    expect(frame.locator('#evaluationDocumentModal')).to_be_visible()
+    expect(frame.locator('.evaluation-document-preview')).to_have_attribute('src',re.compile(r'api=file'))
     page.locator('#adminOverlay .btn-close').click()
+    assert page.locator('#documentWorkspace').bounding_box()==before
     assert page.locator('[data-drag-document="'+str(docid)+'"] .doc-second-line').evaluate('''row => {
         const sender=row.querySelector('.doc-sender').getBoundingClientRect();
         const amount=row.querySelector('.doc-gross').getBoundingClientRect();

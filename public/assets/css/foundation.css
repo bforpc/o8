@@ -124,6 +124,19 @@ html[data-bs-theme="dark"] {
 .evaluation-view .table { --bs-table-bg: transparent; --bs-table-color: var(--o8-text); --bs-table-border-color: var(--o8-line); margin: 0; }
 .evaluation-view .table th, .evaluation-view .table td { white-space: nowrap; }
 .evaluation-view .table th:first-child { white-space: normal; }
+.evaluation-document-details { margin-top: 10px; border-top: 1px solid var(--o8-line); padding-top: 8px; }
+.evaluation-document-details > summary { display: flex; align-items: center; gap: .5rem; cursor: pointer; color: var(--o8-text); font-size: .8125rem; font-weight: 600; }
+.evaluation-document-count { color: var(--o8-muted); font-size: .75rem; font-variant-numeric: tabular-nums; }
+.evaluation-document-table th, .evaluation-document-table td { vertical-align: middle; }
+.evaluation-document-table th:nth-child(2), .evaluation-document-table td:nth-child(2),
+.evaluation-document-table th:nth-child(3), .evaluation-document-table td:nth-child(3),
+.evaluation-document-table th:nth-child(4), .evaluation-document-table td:nth-child(4) { white-space: normal; }
+.evaluation-document-table td:nth-child(2) { min-width: 12rem; }
+.evaluation-document-table td:nth-child(3), .evaluation-document-table td:nth-child(4) { min-width: 8rem; overflow-wrap: anywhere; }
+.evaluation-document-open { padding: 0; text-align: left; font-weight: 600; }
+.evaluation-document-preview { display: block; width: 100%; height: min(78dvh, 900px); border: 0; background: var(--o8-background); }
+.evaluation-view .modal-content { color: var(--o8-text); background: var(--o8-surface); border-color: var(--o8-line); }
+.evaluation-view .modal-header { border-color: var(--o8-line); }
 .overlay-page .tenant-card, .overlay-page details.border, .overlay-page article.border { background: var(--o8-surface); color: var(--o8-text); border-color: var(--o8-line) !important; }
 .source-card { background: color-mix(in srgb, var(--o8-accent) var(--o8-group-accent, 7%), var(--o8-surface)); color: var(--o8-text); border: 1px solid var(--o8-line); border-radius: 8px; padding: 10px 11px; }
 .source-card > summary { cursor: pointer; color: var(--o8-text); }

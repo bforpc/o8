@@ -92,6 +92,42 @@ final class Evaluation
         $s=$this->db->prepare("SELECT DATE_FORMAT(ai.invoice_date,'%Y-%m') AS month,aa.id AS account_id,aa.code AS account_code,aa.name AS account_name,ai.currency,SUM(ai.net) AS total_net,SUM(ai.tax) AS total_tax,SUM(ai.gross) AS total_gross,COUNT(DISTINCT ai.document_id) AS document_count FROM ($selected) selected JOIN document_invoices ai ON ai.tenant_id=? AND ai.document_id=selected.id LEFT JOIN accounting_accounts aa ON aa.tenant_id=ai.tenant_id AND aa.id=ai.account_id GROUP BY DATE_FORMAT(ai.invoice_date,'%Y-%m'),aa.id,ai.currency ORDER BY month DESC,aa.code,ai.currency");
         $s->execute([...$params,$actor->tenantId()]);
         $result=$this->aggregate($s->fetchAll());
+        $s=$this->db->prepare("SELECT DATE_FORMAT(ai.invoice_date,'%Y-%m') AS month,d.id,d.title,COALESCE(d.document_date,ai.invoice_date) AS document_date,ai.gross,ai.currency FROM ($selected) selected JOIN documents d ON d.tenant_id=? AND d.id=selected.id JOIN document_invoices ai ON ai.tenant_id=? AND ai.document_id=d.id ORDER BY month DESC,d.document_date DESC,d.id DESC");
+        $s->execute([...$params,$actor->tenantId(),$actor->tenantId()]);
+        $documentRows=$s->fetchAll();
+        if ($documentRows) {
+            $ids=array_values(array_unique(array_map(static fn(array $row):int=>(int)$row['id'],$documentRows)));
+            $marks=implode(',',array_fill(0,count($ids),'?'));
+            $byId=[];
+            foreach ($documentRows as $row) $byId[(int)$row['id']]=['id'=>(int)$row['id'],'title'=>(string)$row['title'],'date'=>$row['document_date'],'gross'=>(string)$row['gross'],'currency'=>(string)$row['currency'],'tags'=>[],'folders'=>[]];
+            $s=$this->db->prepare("SELECT dt.document_id,t.name FROM document_tags dt JOIN tags t ON t.tenant_id=dt.tenant_id AND t.id=dt.tag_id WHERE dt.tenant_id=? AND dt.document_id IN ($marks) ORDER BY t.name,t.id");
+            $s->execute([$actor->tenantId(),...$ids]);
+            foreach ($s->fetchAll() as $tag) $byId[(int)$tag['document_id']]['tags'][]=(string)$tag['name'];
+            $folderWhere=$actor->row['role']==='admin'?'':' AND owner_id=?';
+            $s=$this->db->prepare('SELECT id,name,parent_id FROM folders WHERE tenant_id=?'.$folderWhere);
+            $s->execute($actor->row['role']==='admin'?[$actor->tenantId()]:[$actor->tenantId(),$actor->id()]);
+            $visibleFolders=[]; foreach ($s->fetchAll() as $folder) $visibleFolders[(int)$folder['id']]=$folder;
+            $folderMarks=implode(',',array_fill(0,count($ids),'?'));
+            $folderOwnerFilter=$actor->row['role']==='admin'?'':' AND f.owner_id=?';
+            $s=$this->db->prepare("SELECT fd.document_id,fd.folder_id FROM folder_documents fd JOIN folders f ON f.tenant_id=fd.tenant_id AND f.id=fd.folder_id WHERE fd.tenant_id=? AND fd.document_id IN ($folderMarks)$folderOwnerFilter ORDER BY f.name,f.id");
+            $s->execute($actor->row['role']==='admin'?[$actor->tenantId(),...$ids]:[$actor->tenantId(),...$ids,$actor->id()]);
+            $pathFor=static function(int $folderId) use($visibleFolders): string {
+                $parts=[]; $seen=[]; $current=$folderId;
+                while (isset($visibleFolders[$current]) && !isset($seen[$current])) {
+                    $seen[$current]=true; $folder=$visibleFolders[$current]; array_unshift($parts,(string)$folder['name']);
+                    $current=$folder['parent_id']===null?0:(int)$folder['parent_id'];
+                }
+                return implode(' / ',$parts);
+            };
+            foreach ($s->fetchAll() as $link) {
+                $path=$pathFor((int)$link['folder_id']);
+                if ($path!=='') $byId[(int)$link['document_id']]['folders'][]=$path;
+            }
+            foreach ($documentRows as $row) {
+                $month=(string)$row['month'];
+                $result['months'][$month]['documents'][]=$byId[(int)$row['id']];
+            }
+        }
         $result['matchingTotal']=$matchingTotal;
         $result['selectedTotal']=min($matchingTotal,$latest??PHP_INT_MAX,$size==='all'?PHP_INT_MAX:(int)$size);
         return $result;
