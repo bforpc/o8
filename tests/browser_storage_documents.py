@@ -62,6 +62,8 @@ with sync_playwright() as p:
     page.on('console',lambda m:console_errors.append(m.text) if m.type=='error' else None)
     page.on('dialog',lambda d:(native_dialogs.append(d.type),d.dismiss()))
     login(page,'admin','Browser-only-password-456')
+    session_cookie=next((cookie for cookie in page.context.cookies(BASE) if cookie['name']=='o8_session'),None)
+    assert session_cookie is not None and session_cookie['expires'] > time.time(), 'authenticated browser session cookie must persist past browser shutdown'
     expect(page.get_by_role('button',name='Dokumente hochladen',exact=True)).to_be_enabled()
     assert page.locator('.app-header .header-intake + .workspace-menu').count()==1
     assert page.locator('.demo-strip, .workspace-heading').count()==0

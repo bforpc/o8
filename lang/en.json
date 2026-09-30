@@ -176,7 +176,7 @@
       "settings": "Settings",
       "tenantSession": "Tenant session",
       "idleMinutes": "Idle timeout in minutes",
-      "sessionInfo": "After this period of inactivity, your tenant sign-in expires. Default: 480 minutes.",
+      "sessionInfo": "After this period of inactivity, your tenant sign-in expires. Closing the browser does not end it. Default: 480 minutes.",
       "manageTags": "Manage tags",
       "tagInfo": "Tags are shared across this tenant. Renaming preserves assignments; deleting also removes the tag from assigned documents, including in the recycle bin. Only an admin can change or delete shared tags.",
       "newTag": "New tag",

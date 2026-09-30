@@ -176,7 +176,7 @@
       "settings": "Einstellungen",
       "tenantSession": "Mandanten-Sitzung",
       "idleMinutes": "Inaktivitätsfrist in Minuten",
-      "sessionInfo": "Nach dieser Zeit ohne Aktivität endet die Anmeldung in diesem Mandanten. Standard: 480 Minuten.",
+      "sessionInfo": "Nach dieser Zeit ohne Aktivität endet die Anmeldung in diesem Mandanten. Das Schließen des Browsers beendet sie nicht. Standard: 480 Minuten.",
       "manageTags": "Tags verwalten",
       "tagInfo": "Tags gelten für diesen Mandanten. Umbenennen erhält alle Zuordnungen; Löschen entfernt das Tag auch von zugeordneten Dokumenten im Papierkorb. Gemeinsam genutzte Tags kann nur ein Admin ändern oder löschen.",
       "newTag": "Neues Tag",

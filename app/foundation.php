@@ -114,8 +114,9 @@ try {
     if (!is_writable($sessionDirectory)) throw new RuntimeException('Sitzungsablage storage/system/sessions ist nicht beschreibbar.');
     if ((fileperms($sessionDirectory)&0077)!==0) throw new RuntimeException('Sitzungsablage storage/system/sessions hat zu offene Rechte. Erforderlich ist 0700.');
     session_save_path($sessionDirectory);
-    ini_set('session.gc_maxlifetime','604800');
-    session_set_cookie_params(['lifetime'=>0,'path'=>'/','secure'=>$secure,'httponly'=>true,'samesite'=>'Strict']);
+    $sessionCookieLifetime=604800;
+    ini_set('session.gc_maxlifetime',(string)$sessionCookieLifetime);
+    session_set_cookie_params(['lifetime'=>$sessionCookieLifetime,'path'=>'/','secure'=>$secure,'httponly'=>true,'samesite'=>'Strict']);
     session_start();
     $_SESSION['csrf']??=bin2hex(random_bytes(32));
     $identity=$runtime->identity();
@@ -139,6 +140,7 @@ try {
         unset($_SESSION['actor']['tenant_id'],$_SESSION['actor']['membership_id'],$_SESSION['actor']['membership_version'],$_SESSION['actor']['context_token']);
         $_SESSION['csrf']=bin2hex(random_bytes(32));
     }
+    if ($actor) setcookie(session_name(),session_id(),['expires'=>time()+$sessionCookieLifetime,'path'=>'/','secure'=>$secure,'httponly'=>true,'samesite'=>'Strict']);
     if (isset($_GET['api'])) require __DIR__.'/document-api.php';
     if ($_SERVER['REQUEST_METHOD']==='POST') {
         try {
