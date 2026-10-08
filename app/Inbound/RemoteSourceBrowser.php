@@ -142,6 +142,19 @@ final class RemoteSourceBrowser
         return $documents;
     }
 
+    /** Return only candidate emails whose supported document attachments are all in the inbound ledger. */
+    public static function deletableMessageUids(array $inventory,array $fetchedKeys,array $candidateUids): array
+    {
+        if (($inventory['kind']??'')!=='imap') return [];
+        $fetched=array_fill_keys($fetchedKeys,true); $candidates=array_fill_keys(array_map('intval',$candidateUids),true); $deletable=[];
+        foreach ($inventory['rows']??[] as $message) {
+            $uid=(int)($message['uid']??0); if ($uid<1 || !isset($candidates[$uid])) continue;
+            $documents=array_values(array_filter($message['attachments']??[],static fn(array $file):bool=>self::documentName((string)($file['filename']??''))));
+            if ($documents && count(array_filter($documents,static fn(array $file):bool=>isset($fetched[$file['remoteKey']??''])))===count($documents)) $deletable[$uid]=true;
+        }
+        return array_map('intval',array_keys($deletable));
+    }
+
     public static function documentName(string $name): bool { return in_array(mb_strtolower(pathinfo($name,PATHINFO_EXTENSION)),['pdf','jpg','jpeg','png','odt','txt'],true); }
 
     private function parts(object $structure,string $prefix=''): array { $rows=[]; if (!empty($structure->parts)) foreach ($structure->parts as $index=>$part) { $section=$prefix===''?(string)($index+1):$prefix.'.'.($index+1); $rows=array_merge($rows,!empty($part->parts)?$this->parts($part,$section):[['part'=>$part,'section'=>$section]]); } else $rows[]=['part'=>$structure,'section'=>'1']; return $rows; }

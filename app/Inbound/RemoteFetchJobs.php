@@ -149,7 +149,7 @@ final class RemoteFetchJobs
             if ((int)$stmt->fetchColumn()>0) { $stmt=$this->db->prepare("UPDATE background_jobs SET status='queued',lease_until=NULL,worker_token=NULL WHERE tenant_id=? AND id=? AND worker_token=?"); $stmt->execute([$job['tenant_id'],$job['id'],$token]); return ['id'=>(int)$job['id'],'status'=>'queued','failed'=>(int)$job['failed_count'],'warning'=>null]; }
         }
         $stmt=$this->db->prepare("SELECT COUNT(*) FROM source_fetch_items WHERE tenant_id=? AND job_id=? AND status='failed'"); $stmt->execute([$job['tenant_id'],$job['id']]); $failed=(int)$stmt->fetchColumn();
-        $cleanup=null; if (!$failed && !empty($connection['config']['delete_after_fetch'])) try { $this->cleanupRemote($job,$connection); } catch (\Throwable) { $cleanup='remote_cleanup_failed'; }
+        $cleanup=null; if (!empty($connection['config']['delete_after_fetch'])) try { $this->cleanupRemote($actor,$job,$connection); } catch (\Throwable) { $cleanup='remote_cleanup_failed'; }
         $stmt=$this->db->prepare("UPDATE background_jobs SET status=?,failed_count=?,error_code=?,lease_until=NULL,worker_token=NULL,finished_at=UTC_TIMESTAMP() WHERE tenant_id=? AND id=? AND worker_token=?");
         $stmt->execute([$failed?'failed':'completed',$failed,$failed?'fetch_failed':$cleanup,$job['tenant_id'],$job['id'],$token]);
         $stmt=$this->db->prepare("UPDATE import_sources SET last_success_at=IF(?=0,UTC_TIMESTAMP(),last_success_at),last_error_code=?,next_run_at=IF(interval_minutes=0,NULL,DATE_ADD(UTC_TIMESTAMP(),INTERVAL interval_minutes MINUTE)) WHERE tenant_id=? AND id=?");
@@ -222,16 +222,21 @@ final class RemoteFetchJobs
         if ($bytes==='' || strlen($bytes)>$limit) throw new \RuntimeException('remote_size_invalid'); return $bytes;
     }
 
-    private function cleanupRemote(array $job,array $connection): void
+    private function cleanupRemote(Actor $actor,array $job,array $connection): void
     {
         $stmt=$this->db->prepare("SELECT locator_json FROM source_fetch_items WHERE tenant_id=? AND job_id=? AND status='completed'"); $stmt->execute([$job['tenant_id'],$job['id']]); $rows=$stmt->fetchAll();
         if ($connection['kind']==='webdav') {
             foreach ($rows as $row) { $locator=json_decode($row['locator_json'],true,32,JSON_THROW_ON_ERROR); foreach (array_merge([$locator['document']],array_column($locator['sidecars']??[],'locator')) as $file) $this->davDelete($connection,(string)$file['href']); }
             return;
         }
-        $uids=[]; foreach ($rows as $row) { $locator=json_decode($row['locator_json'],true,32,JSON_THROW_ON_ERROR); if (!empty($locator['document']['deleteMessageEligible'])) $uids[(int)$locator['document']['uid']]=true; }
+        $candidateUids=[]; foreach ($rows as $row) { $locator=json_decode($row['locator_json'],true,32,JSON_THROW_ON_ERROR); $uid=(int)($locator['document']['uid']??0); if ($uid>0) $candidateUids[$uid]=true; }
+        if (!$candidateUids) return;
+        $inventory=(new RemoteSourceBrowser(new SourceManager($this->db,$this->identity)))->browse($actor,(int)$job['source_id']);
+        $needed=[]; foreach ($inventory['rows']??[] as $message) if (isset($candidateUids[(int)($message['uid']??0)])) foreach ($message['attachments']??[] as $file) if (RemoteSourceBrowser::documentName((string)($file['filename']??''))) $needed[]=(string)$file['remoteKey'];
+        $fetched=[]; foreach (array_chunk(array_values(array_unique($needed)),500) as $keys) { if (!$keys) continue; $marks=implode(',',array_fill(0,count($keys),'?')); $stmt=$this->db->prepare("SELECT remote_key_hash FROM source_items WHERE tenant_id=? AND source_id=? AND remote_key_hash IN ($marks)"); $stmt->execute([(int)$job['tenant_id'],(int)$job['source_id'],...$keys]); foreach ($stmt->fetchAll(\PDO::FETCH_COLUMN) as $key) $fetched[]=(string)$key; }
+        $uids=RemoteSourceBrowser::deletableMessageUids($inventory,$fetched,array_keys($candidateUids));
         if (!$uids) return; $config=$connection['config']; $transport=$config['security']==='tls'?'ssl':'tls'; $mailbox='{'.$config['host'].':'.(int)$config['port'].'/imap/'.$transport.'}'.$config['folder']; $stream=@imap_open($mailbox,$config['username'],$connection['secret'],0,1,['DISABLE_AUTHENTICATOR'=>'GSSAPI']);
-        try { if ($stream===false) throw new \RuntimeException('imap_cleanup_failed'); foreach (array_keys($uids) as $uid) if (!@imap_delete($stream,(string)$uid,FT_UID)) throw new \RuntimeException('imap_cleanup_failed'); if (!@imap_expunge($stream)) throw new \RuntimeException('imap_cleanup_failed'); } finally { if ($stream!==false) @imap_close($stream); imap_errors(); imap_alerts(); }
+        try { if ($stream===false) throw new \RuntimeException('imap_cleanup_failed'); foreach ($uids as $uid) if (!@imap_delete($stream,(string)$uid,FT_UID)) throw new \RuntimeException('imap_cleanup_failed'); if (!@imap_expunge($stream)) throw new \RuntimeException('imap_cleanup_failed'); } finally { if ($stream!==false) @imap_close($stream); imap_errors(); imap_alerts(); }
     }
 
     private function davDelete(array $connection,string $href): void

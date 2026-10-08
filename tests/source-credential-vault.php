@@ -14,6 +14,7 @@ check(is_string($browserSource) && str_contains($browserSource,'imap_fetchstruct
 $fetchSource=file_get_contents(dirname(__DIR__).'/app/Inbound/RemoteFetchJobs.php');
 check(is_string($fetchSource) && str_contains($fetchSource,'imap_fetchbody($stream,(int)$locator[\'uid\']'),'IMAP fetch passes an integer UID to imap_fetchbody');
 check(str_contains($fetchSource,'imap_expunge($stream)'),'successful configured mailbox cleanup expunges messages marked for deletion');
+check(str_contains($fetchSource,'$this->cleanupRemote($actor,$job,$connection)') && !str_contains($fetchSource,'if (!$failed && !empty($connection[\'config\'][\'delete_after_fetch\']))'),'successful email cleanup is not blocked by unrelated failed files');
 check(str_contains(RemoteSourceBrowser::describeImapFailure('connect',['LOGIN failed'],'INBOX'),'IMAP-Anmeldung fehlgeschlagen'),'IMAP failure identifies authentication errors');
 check(str_contains(RemoteSourceBrowser::describeImapFailure('connect',['Can not connect to server'],'INBOX'),'IMAP-Verbindung fehlgeschlagen'),'IMAP failure identifies connection errors');
 check(str_contains(RemoteSourceBrowser::describeImapFailure('connect',['Mailbox does not exist'],'Archive'),'IMAP-Ordner „Archive“'),'IMAP failure identifies mailbox folder errors');
@@ -54,5 +55,16 @@ $one=RemoteSourceBrowser::selectDocuments($mailInventory,[str_repeat('a',64)]);
 $both=RemoteSourceBrowser::selectDocuments($mailInventory,[str_repeat('a',64),str_repeat('c',64)]);
 check(count($one)===1 && $one[0]['sidecars'][0]['filename']==='one.json' && !$one[0]['locator']['deleteMessageEligible'],'partial message selection never authorizes deleting its email');
 check(count($both)===2 && $both[0]['locator']['deleteMessageEligible'] && $both[1]['locator']['deleteMessageEligible'],'complete document selection authorizes post-fetch email cleanup');
+$mailWithThree=['kind'=>'imap','rows'=>[
+    ['uid'=>42,'attachments'=>[
+        ['remoteKey'=>str_repeat('a',64),'filename'=>'one.pdf'],
+        ['remoteKey'=>str_repeat('c',64),'filename'=>'two.pdf'],
+        ['remoteKey'=>str_repeat('d',64),'filename'=>'three.pdf'],
+    ]],
+    ['uid'=>43,'attachments'=>[['remoteKey'=>str_repeat('e',64),'filename'=>'other.pdf']]],
+]];
+check(RemoteSourceBrowser::deletableMessageUids($mailWithThree,[str_repeat('a',64),str_repeat('c',64)],[42])===[],'email is retained unless every supported document attachment has reached the inbound ledger');
+check(RemoteSourceBrowser::deletableMessageUids($mailWithThree,[str_repeat('a',64),str_repeat('c',64),str_repeat('d',64)],[42])===[42],'email with every supported document attachment fetched can be removed independently');
+check(RemoteSourceBrowser::deletableMessageUids($mailWithThree,[str_repeat('a',64),str_repeat('c',64),str_repeat('d',64),str_repeat('e',64)],[42])===[42],'a failed or unrelated email does not prevent cleanup of a fully fetched email');
 try { RemoteSourceBrowser::parseDavListing('<broken','https://dav.example.test/remote/inbox/'); check(false,'invalid DAV XML rejected'); } catch (RuntimeException) { check(true,'invalid DAV XML rejected'); }
 echo "$checks source credential checks passed.\n";
