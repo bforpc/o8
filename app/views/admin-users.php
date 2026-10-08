@@ -10,7 +10,7 @@
 <?php if (count($users)>200): ?><p role="status"><?= h(tr('admin.tooManyUsers')) ?></p><?php elseif (!$users): ?><p><?= h(tr('admin.noMatchingUsers')) ?></p><?php endif ?>
 <?php foreach (array_slice($users,0,200) as $user): ?>
 <article class="o8-info-group o8-info-group--head mb-3" data-user-id="<?= h($user['id']) ?>">
-<h4 class="h6"><?= h($user['display_name']) ?> <span class="badge <?= $user['active']?'text-bg-success':'text-bg-secondary' ?>"><?= h(tr($user['active']?'admin.active':'admin.locked')) ?></span> <span class="badge text-bg-light"><?= h(tr($user['role']==='admin'?'navigation.adminRole':'navigation.userRole')) ?></span></h4>
+<h4 class="h6"><?= h($user['display_name']) ?> <?= (int)$user['id']===$actor->id()?'<span class="badge text-bg-info">'.h(tr('admin.you')).'</span> ':'' ?><span class="badge <?= $user['active']?'text-bg-success':'text-bg-secondary' ?>"><?= h(tr($user['active']?'admin.active':'admin.locked')) ?></span> <span class="badge text-bg-light"><?= h(tr($user['role']==='admin'?'navigation.adminRole':'navigation.userRole')) ?></span></h4>
 <p class="small text-break"><?= h($user['login']) ?> · <?= h($user['email']) ?><?= $user['must_change_password']?' · '.h(tr('admin.pendingPasswordChange')):'' ?></p>
 <details class="o8-info-group o8-info-group--soft"><summary><?= h(tr('admin.editUser')) ?></summary><form method="post" class="mt-3"><?php postFields('user_update','users'); ?>
 <input type="hidden" name="id" value="<?= h($user['id']) ?>"><input type="hidden" name="version" value="<?= h($user['auth_version']) ?>">
@@ -19,4 +19,17 @@
 <label class="form-label d-block"><?= h(tr('admin.status')) ?><select name="active" class="form-select"><option value="1" <?= $user['active']?'selected':'' ?>><?= h(tr('admin.active')) ?></option><option value="0" <?= !$user['active']?'selected':'' ?>><?= h(tr('admin.locked')) ?></option></select></label>
 <label class="d-block mb-3"><input type="checkbox" name="confirm" value="yes" required> <?= h(tr('admin.confirmUserChanges')) ?></label>
 <button class="btn btn-primary"><?= h(tr('admin.saveUser')) ?></button></form></details>
+<details class="o8-info-group o8-info-group--soft mt-2"><summary><?= h(tr('admin.changeAccountEmail')) ?></summary><form method="post" class="mt-3"><?php postFields('admin_member_email_save','users'); ?>
+<input type="hidden" name="id" value="<?= h($user['id']) ?>"><input type="hidden" name="version" value="<?= h($user['auth_version']) ?>">
+<label class="form-label d-block"><?= h(tr('admin.email')) ?><input class="form-control" type="email" name="email" value="<?= h($user['email']) ?>" maxlength="254" autocomplete="email" required></label>
+<p class="small text-secondary"><?= h(tr('admin.emailAdminGlobalInfo')) ?></p>
+<label class="d-block mb-3"><input type="checkbox" name="confirm_global_email" value="yes" required> <?= h(tr('admin.confirmGlobalEmailChange')) ?></label>
+<button class="btn btn-outline-primary btn-sm" type="submit"><?= h(tr('admin.saveEmail')) ?></button></form></details>
+<?php if ((int)$user['id']!==$actor->id()): ?><details class="o8-info-group o8-info-group--soft mt-2"><summary><?= h(tr('admin.resetUserPassword')) ?></summary><form method="post" class="mt-3"><?php postFields('user_password_reset','users'); ?>
+<input type="hidden" name="id" value="<?= h($user['id']) ?>"><input type="hidden" name="version" value="<?= h($user['auth_version']) ?>">
+<label class="form-label d-block"><?= h(tr('admin.temporaryPassword')) ?><input class="form-control" type="password" name="new_password" minlength="6" maxlength="72" autocomplete="new-password" required></label>
+<label class="form-label d-block"><?= h(tr('admin.repeatTemporaryPassword')) ?><input class="form-control" type="password" name="repeat_password" minlength="6" maxlength="72" autocomplete="new-password" required></label>
+<p class="small text-secondary"><?= h(tr('admin.passwordResetGlobalInfo')) ?></p>
+<label class="d-block mb-3"><input type="checkbox" name="confirm_global_password" value="yes" required> <?= h(tr('admin.confirmGlobalPasswordReset')) ?></label>
+<button class="btn btn-outline-danger btn-sm" type="submit"><?= h(tr('admin.resetUserPassword')) ?></button></form></details><?php endif ?>
 </article><?php endforeach ?>

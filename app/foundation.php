@@ -3,7 +3,7 @@ declare(strict_types=1);
 require_once __DIR__.'/bootstrap.php';
 use O8\Core\{Config,Runtime,Database};
 use O8\Install\Migrator;
-use O8\Auth\{AuthService,BootstrapService,InvitationService};
+use O8\Auth\{AccountEmailException,AuthService,BootstrapService,InvitationService};
 use O8\Admin\Administration;
 use O8\Admin\TenantDeletion;
 use O8\Storage\Storage;
@@ -28,7 +28,7 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-sr
 $message=''; $error=''; $installed=false; $actor=null; $fatal=false; $tenants=[]; $users=[]; $appearancePreferences=null; $config=null; $secure=false; $setupDiagnostics=[];
 $section=is_string($_GET['section']??null) ? $_GET['section'] : '';
 $deletionJob=null; $deletionReview=null; $deletionId=0;
-$choices=[]; $schemaPending=false; $inviteCode=''; $importSources=[]; $sourceWorkerActive=false; $aiConfiguration=[]; $aiWorkerActive=false; $aiModels=[];
+$choices=[]; $schemaPending=false; $inviteCode=''; $importSources=[]; $sourceWorkerActive=false; $aiConfiguration=[]; $aiWorkerActive=false; $aiModels=[]; $tenantLoginPreference=['mode'=>'ask','tenant_id'=>null];
 $operatorLogin=($_GET['login']??'')==='operator';
 function h(mixed $value): string { return htmlspecialchars((string)$value,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8'); }
 function setupDiagnostics(string $root,bool $secure,?array $config): array {
@@ -158,7 +158,9 @@ try {
                 }
                 header('Location: '.($_SERVER['SCRIPT_NAME']??'index.php').$destination,true,303); exit;
             }
-            if (in_array($action,['user_create','user_update','user_invite','accounting_save','session_timeout_save','tag_create','tag_rename','tag_delete','trash_retention_save','source_save','source_delete','source_test','ai_configuration_save','ai_models_refresh'],true) && (!$actor || $actor->kind!=='tenant' || !hash_equals($_SESSION['actor']['context_token']??'',field('context_token')) || field('context_token')==='')) throw new RuntimeException('Mandantenkontext geändert. Bitte die Seite neu laden.');
+            if (in_array($action,['user_create','user_update','user_invite','admin_member_email_save','user_password_reset','accounting_save','session_timeout_save','tag_create','tag_rename','tag_delete','trash_retention_save','source_save','source_delete','source_test','ai_configuration_save','ai_models_refresh'],true) && (!$actor || $actor->kind!=='tenant' || !hash_equals($_SESSION['actor']['context_token']??'',field('context_token')) || field('context_token')==='')) throw new RuntimeException('Mandantenkontext geändert. Bitte die Seite neu laden.');
+            if ($action==='tenant_login_preference_save' && (!$actor || $actor->kind==='operator' || ($actor->kind==='tenant' && (!hash_equals($_SESSION['actor']['context_token']??'',field('context_token')) || field('context_token')==='')))) throw new RuntimeException('Anmeldeeinstellung nicht verfügbar. Bitte anmelden und erneut versuchen.');
+            if ($action==='account_email_save' && (!$actor || $actor->kind==='operator' || ($actor->kind==='tenant' && (!hash_equals($_SESSION['actor']['context_token']??'',field('context_token')) || field('context_token')==='')))) throw new RuntimeException('Kontoeinstellung nicht verfügbar. Bitte anmelden und erneut versuchen.');
             $deleteRedirect=0;
             if ($action==='install' && !$installed) {
                 if (!$runtime->verifySetupToken(field('setup_token'))) throw new RuntimeException('Einrichtungscode fehlt, ist ungültig oder abgelaufen.');
@@ -176,6 +178,15 @@ try {
                 $loginSession=$auth->login(field('kind'),field('login'),field('password'),$_SERVER['REMOTE_ADDR']??'',field('setup_token'));
                 $_SESSION=['actor'=>$loginSession];
                 session_regenerate_id(true);
+            } elseif ($action==='tenant_login_preference_save' && $actor) {
+                $auth->saveTenantLoginPreference($actor,field('tenant_login_mode'),field('tenant_id'));
+                $_SESSION['flash']=tr('flash.tenantLoginPreferenceSaved');
+            } elseif ($action==='account_email_save' && $actor) {
+                $auth->saveAccountEmail($actor,field('email'));
+                $_SESSION['flash']=tr('flash.accountEmailSaved');
+            } elseif ($action==='admin_member_email_save' && $actor) {
+                $auth->saveMemberAccountEmail($actor,(int)field('id'),(int)field('version'),field('email'),field('confirm_global_email')==='yes');
+                $_SESSION['flash']=tr('flash.memberEmailSaved');
             } elseif ($action==='logout') {
                 $_SESSION=[]; session_regenerate_id(true);
             } elseif ($action==='password' && $actor) {
@@ -272,6 +283,10 @@ try {
             } elseif ($action==='user_update' && $actor) {
                 confirmed(); $administration->updateUser($actor,(int)field('id'),(int)field('version'),field('display_name'),field('role'),field('active')==='1');
                 $_SESSION['flash']=tr('flash.membershipUpdated');
+            } elseif ($action==='user_password_reset' && $actor) {
+                if (field('new_password')!==field('repeat_password')) throw new RuntimeException(tr('admin.userPasswordMismatch'));
+                $administration->resetPassword($actor,(int)field('id'),(int)field('version'),field('new_password'),field('confirm_global_password')==='yes');
+                $_SESSION['flash']=tr('flash.userPasswordReset');
             } elseif ($action==='user_create' && $actor) {
                 $administration->createUser($actor,accountInput(),field('role'));
                 $_SESSION['flash']=tr('flash.userCreated');
@@ -297,12 +312,16 @@ try {
             if (field('overlay')==='1') $destination.=($destination===''?'?':'&').'overlay=1';
             header('Location: '.($_SERVER['SCRIPT_NAME']??'index.php').$destination,true,303); exit;
         } catch (PDOException $exception) { $error=tr('flash.databaseAction'); }
+        catch (AccountEmailException $exception) { $error=tr($exception->translationKey); }
         catch (RuntimeException|InvalidArgumentException $exception) { $error=$exception->getMessage(); }
     }
     $message=$_SESSION['flash']??''; unset($_SESSION['flash']);
     $inviteCode=$_SESSION['invite_code']??''; unset($_SESSION['invite_code']);
     if ($actor && !$actor->row['must_change_password'] && !($actor->row['bootstrap_pending']??false)) {
-        if ($actor->kind!=='operator') $choices=$auth->memberships($actor);
+        if ($actor->kind!=='operator') {
+            $choices=$auth->memberships($actor);
+            if ($section==='account') $tenantLoginPreference=$auth->tenantLoginPreference($actor);
+        }
         $allowed=$actor->kind==='operator'?['tenants','storage','account']:($actor->kind==='account'?['choose','account']:($actor->row['role']==='admin'?['documents','users','accounting','evaluation','settings','account','choose']:['documents','settings','account','choose']));
         if ($section==='tenant_delete' && $actor->kind==='operator') {
             $deletionId=(int)($_GET['id']??0);

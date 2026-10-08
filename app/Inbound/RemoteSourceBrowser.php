@@ -94,8 +94,7 @@ final class RemoteSourceBrowser
             $ok=curl_exec($handle); $status=(int)curl_getinfo($handle,CURLINFO_RESPONSE_CODE);
             if ($overflow) throw new \RuntimeException('WebDAV-Dateiliste ist zu groß. Quellordner verkleinern.');
             if ($ok===false) throw new \RuntimeException('WebDAV-Dateiliste konnte nicht geladen werden.');
-            if ($status===401 || $status===403) throw new \RuntimeException('WebDAV-Anmeldung oder Berechtigung fehlgeschlagen.');
-            if ($status!==207) throw new \RuntimeException('WebDAV-Server beantwortet PROPFIND nicht wie erwartet.');
+            if ($status!==207) throw new \RuntimeException(SourceConnectionTester::describeDavStatus($status));
             $rows=array_values(array_filter(self::parseDavListing($response,$config['url']),fn(array $row):bool=>$this->supported($row['filename'])));
             if (!$internal) foreach ($rows as &$row) unset($row['href'],$row['etag']);
             return ['kind'=>'webdav','total'=>count($rows),'limited'=>false,'rows'=>$rows];

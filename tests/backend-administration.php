@@ -43,7 +43,7 @@ rejects(fn()=>$service->createUser($user,payload('nope'),'admin'),'regular user 
 rejects(fn()=>$service->createUser($admin,payload('member'),'user'),'duplicate login or email rejected');
 rejects(fn()=>$service->createUser($admin,payload('invalid'),'operator'),'unknown role rejected');
 rejects(fn()=>$service->updateUser($admin,$secondAdmin->id(),2,'Attack','user',false),'cross-tenant user update rejected');
-rejects(fn()=>$service->resetPassword($admin,$secondAdmin->id(),2,'attack-password'),'cross-tenant password reset rejected');
+rejects(fn()=>$service->resetPassword($admin,$secondAdmin->id(),2,'attack-password',true),'cross-tenant password reset rejected');
 $service->updateUser($admin,$uid,(int)$user->row['auth_version'],'Member','user',false);
 check($auth->actor($userSession)->kind==='account','user disabling revokes existing session');
 check($auth->memberships($auth->actor($auth->login('account','member','member-password','test')))===[],'disabled membership is not offered');
@@ -51,9 +51,17 @@ rejects(fn()=>$service->updateUser($admin,$uid,(int)$user->row['auth_version'],'
 $user=account($db,$uid); $service->updateUser($admin,$uid,(int)$user->row['auth_version'],'Member','user',true);
 check($auth->actor($userSession)->kind==='account','reenabling user does not revive old session');
 $userSession=$auth->login('account','member','member-password','test'); $user=account($db,$uid);
-rejects(fn()=>$service->resetPassword($admin,$uid,(int)$user->row['auth_version'],'reset-pass'),'tenant admin cannot reset shared password');
-check($auth->actor($userSession)->kind==='tenant','rejected reset preserves shared login');
-rejects(fn()=>$service->resetPassword($admin,$admin->id(),1,'reset-own'),'admin cannot use reset flow on self');
+rejects(fn()=>$service->resetPassword($admin,$uid,(int)$user->row['auth_version'],'reset-pass'),'password reset requires global confirmation');
+rejects(fn()=>$service->resetPassword($user,$uid,(int)$user->row['auth_version'],'reset-pass',true),'regular user cannot reset account password');
+rejects(fn()=>$service->resetPassword($admin,$admin->id(),1,'reset-own',true),'admin uses own-account password change flow');
+rejects(fn()=>$service->resetPassword($admin,$uid,(int)$user->row['auth_version'],'short',true),'password reset enforces standard password validation');
+$service->resetPassword($admin,$uid,(int)$user->row['auth_version'],'reset-pass',true);
+check($auth->actor($userSession)===null,'admin password reset revokes existing user session');
+rejects(fn()=>$auth->login('account','member','member-password','test'),'old password no longer works after admin reset');
+$resetSession=$auth->login('account','member','reset-pass','test'); $resetActor=$auth->actor($resetSession);
+check($resetActor->kind==='account' && $resetActor->row['must_change_password'],'admin-set temporary password forces change at next sign-in');
+$userSession=$auth->changePassword($resetActor,'reset-pass','member-password-2');
+check($auth->actor($userSession)->kind==='tenant','user can replace admin-set temporary password');
 $service->updateTenant($operator,$secondAdmin->tenantId(),'Second renamed','contact@example.test',false);
 check($auth->actor($secondSession)->kind==='account','tenant suspension revokes sessions');
 check($auth->memberships($auth->actor($auth->login('account','secondadmin','second-admin','test')))===[],'suspended tenant is not offered');
@@ -70,7 +78,7 @@ $unknown=new Actor('tenant',array_replace($admin->row,['role'=>'unknown']));
 rejects(fn()=>$unknown->documentScope(),'unknown roles fail closed');
 $audit=(string)$db->query('SELECT GROUP_CONCAT(COALESCE(details_json,\'\')) FROM audit_events')->fetchColumn();
 check(!str_contains($audit,'reset-pass') && !str_contains($audit,'abc123'),'audit does not contain credentials');
-check((int)$db->query('SELECT COUNT(*) FROM audit_events')->fetchColumn()===5,'all five successful user writes audited; rejected resets add no event');
+check((int)$db->query('SELECT COUNT(*) FROM audit_events')->fetchColumn()===6,'successful user writes including password reset audited; rejected resets add no event');
 check(count($service->tenants($operator))===2,'operator sees tenant metadata');
 // Two independent requests race to demote themselves. A tenant lock makes one fail.
 $other=account($db,$other); $service->updateUser($admin,$other->id(),(int)$other->row['auth_version'],'Other','admin',true);

@@ -4,6 +4,7 @@ require dirname(__DIR__).'/app/bootstrap.php';
 use O8\Inbound\SourceCredentialVault;
 use O8\Inbound\SourceConnectionTester;
 use O8\Inbound\RemoteSourceBrowser;
+use O8\Core\Languages;
 
 $checks=0;
 function check(bool $condition,string $message): void { global $checks; if (!$condition) throw new RuntimeException('FAIL '.$message); ++$checks; echo "PASS $message\n"; }
@@ -28,6 +29,14 @@ try { $vault->decrypt($cipher,'ffffffff-ffff-4fff-8fff-ffffffffffff',1,12,34,'im
 check(SourceConnectionTester::allowedWebDavIp('93.184.216.34'),'public WebDAV address accepted by network guard');
 foreach (['192.168.0.1','192.168.255.254'] as $address) check(SourceConnectionTester::allowedWebDavIp($address),'explicit 192.168/16 intranet address accepted: '.$address);
 foreach (['127.0.0.1','10.0.0.1','172.16.0.1','169.254.169.254','::1','fc00::1','fe80::1'] as $address) check(!SourceConnectionTester::allowedWebDavIp($address),'non-approved private or reserved address rejected: '.$address);
+check(str_contains(SourceConnectionTester::describeDavStatus(401),'HTTP 401') && str_contains(SourceConnectionTester::describeDavStatus(401),'Benutzername'),'WebDAV 401 diagnosis points to authentication');
+check(str_contains(SourceConnectionTester::describeDavStatus(403),'HTTP 403') && str_contains(SourceConnectionTester::describeDavStatus(403),'PROPFIND-Berechtigung'),'WebDAV 403 diagnosis points to path permissions');
+check(str_contains(SourceConnectionTester::describeDavStatus(404),'HTTP 404') && str_contains(SourceConnectionTester::describeDavStatus(404),'fehlender Kontoberechtigung'),'WebDAV 404 diagnosis also accounts for servers hiding permission failures');
+check(str_contains(SourceConnectionTester::describeDavStatus(302),'HTTP 302') && str_contains(SourceConnectionTester::describeDavStatus(302),'Weiterleitung'),'WebDAV redirects are identified without following them');
+check(str_contains(SourceConnectionTester::describeDavStatus(405),'HTTP 405') && str_contains(SourceConnectionTester::describeDavStatus(405),'PROPFIND'),'WebDAV method rejection is identified');
+$languageCatalog=Languages::available(dirname(__DIR__).'/lang');
+$translatedDav=Languages::display($languageCatalog,'en',SourceConnectionTester::describeDavStatus(401));
+check($translatedDav==='WebDAV authentication was rejected (HTTP 401). Check the username, password or app password.','WebDAV HTTP diagnosis translates with its status placeholder');
 $dav='<?xml version="1.0"?><d:multistatus xmlns:d="DAV:"><d:response><d:href>/remote/inbox/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop></d:propstat></d:response><d:response><d:href>/remote/inbox/Rechnung%201.pdf</d:href><d:propstat><d:prop><d:resourcetype/><d:getcontentlength>1234</d:getcontentlength><d:getcontenttype>application/pdf</d:getcontenttype><d:getlastmodified>Mon, 21 Sep 2026 08:00:00 GMT</d:getlastmodified><d:getetag>"abc"</d:getetag><d:displayname>Rechnung 1.pdf</d:displayname></d:prop></d:propstat></d:response><d:response><d:href>/outside/secret.pdf</d:href><d:propstat><d:prop><d:resourcetype/><d:getcontentlength>1</d:getcontentlength></d:prop></d:propstat></d:response></d:multistatus>';
 $davRows=RemoteSourceBrowser::parseDavListing($dav,'https://dav.example.test/remote/inbox/');
 check(count($davRows)===1 && $davRows[0]['filename']==='Rechnung 1.pdf' && $davRows[0]['size']===1234 && strlen($davRows[0]['remoteKey'])===64,'bounded DAV parser keeps files below configured base path and stable opaque keys');

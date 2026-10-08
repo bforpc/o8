@@ -56,6 +56,21 @@ with sync_playwright() as p:
     create.get_by_role('button',name='Benutzer anlegen',exact=True).click()
     assert admin.get_by_role('heading',name='Member <safe> Aktiv user',exact=True).is_visible()
     assert admin.locator('safe').count()==0
+    row=admin.locator('article').filter(has=admin.get_by_role('heading',name='Member <safe> Aktiv user',exact=True))
+    row.get_by_text('E-Mail-Adresse des Kontos ändern',exact=True).click()
+    email_form=row.locator('form:has(input[name="action"][value="admin_member_email_save"])')
+    email_form.locator('[name="email"]').fill('member-updated@example.test')
+    email_form.locator('[name="confirm_global_email"]').check()
+    email_form.get_by_role('button',name='E-Mail-Adresse speichern').click()
+    assert admin.locator('article').filter(has_text='member-updated@example.test').count()==1
+    own=admin.locator('article').filter(has_text='browser@example.test')
+    assert own.get_by_text('Sie',exact=True).is_visible()
+    own.get_by_text('E-Mail-Adresse des Kontos ändern',exact=True).click()
+    own_email_form=own.locator('form:has(input[name="action"][value="admin_member_email_save"])')
+    own_email_form.locator('[name="email"]').fill('browser-admin-updated@example.test')
+    own_email_form.locator('[name="confirm_global_email"]').check()
+    own_email_form.get_by_role('button',name='E-Mail-Adresse speichern').click()
+    assert admin.locator('article').filter(has_text='browser-admin-updated@example.test').count()==1
     member=browser.new_page()
     login(member,'tenant','secret6',uuid,'member')
     assert member.get_by_role('heading',name='Startpasswort ändern').is_visible()
@@ -77,7 +92,7 @@ with sync_playwright() as p:
     row.get_by_role('button',name='Benutzer speichern').click()
     member.reload()
     assert member.get_by_role('heading',name='Mandant auswählen',exact=True).is_visible()
-    assert admin.get_by_text('Passwort zurücksetzen',exact=True).count()==0
+    assert admin.get_by_text('Passwort für Benutzer setzen',exact=True).count()>=1
     member.get_by_role('button',name='Mandant öffnen',exact=True).click()
     assert member.get_by_role('link',name='Benutzer',exact=True).is_visible()
     admin.locator('details.header-more > summary').click()

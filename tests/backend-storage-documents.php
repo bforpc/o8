@@ -2,7 +2,7 @@
 declare(strict_types=1);
 require dirname(__DIR__).'/app/bootstrap.php';
 use O8\Core\Runtime;
-use O8\Auth\{AuthService,BootstrapService};
+use O8\Auth\{AuthService,BootstrapService,InvitationService};
 use O8\Install\Migrator;
 use O8\Admin\{Administration,TenantDeletion};
 use O8\Storage\Storage;
@@ -26,6 +26,15 @@ $second=$admin->createTenant($op,'Beta','',['login'=>'beta','name'=>'Beta','emai
 $bSession=$auth->login('account','beta','secret6','test'); $bSession=$auth->changePassword($auth->actor($bSession),'secret6','beta-secret'); $b=$auth->actor($bSession);
 $uid=$admin->createUser($a,['login'=>'user','name'=>'User','email'=>'user@example.test','password'=>'secret6'],'user');
 $uSession=$auth->login('account','user','secret6','test'); $uSession=$auth->changePassword($auth->actor($uSession),'secret6','user-secret'); $u=$auth->actor($uSession);
+$invite=$admin->inviteUser($b,'user');
+check((new InvitationService($db))->accept($u,$invite)===$b->tenantId(),'existing account can accept invitation to another tenant');
+$auth->saveTenantLoginPreference($u,'default',(string)$b->tenantId());
+$defaultLogin=$auth->login('account','user','user-secret','test');
+check((int)($defaultLogin['tenant_id']??0)===$b->tenantId(),'configured default tenant opens automatically after sign-in');
+rejects(fn()=>$auth->saveTenantLoginPreference($u,'default',(string)($a->tenantId()+999)),'unassigned tenant cannot be saved as default');
+$auth->saveTenantLoginPreference($u,'ask','');
+$askLogin=$auth->login('account','user','user-secret','test');
+check(!isset($askLogin['tenant_id']) && $auth->actor($askLogin)?->kind==='account','ask every time leaves multi-tenant account at tenant selection');
 $third=$admin->createTenant($op,'Gamma','',['login'=>'gamma','name'=>'Gamma','email'=>'gamma@example.test','password'=>'secret6']);
 $gamma=(int)sql('SELECT id FROM tenants WHERE public_id=?',[$third])->fetchColumn();
 check($auth->sessionMinutes($a->tenantId())===480 && $auth->sessionMinutes($b->tenantId())===480,'tenant sessions default to eight hours');

@@ -143,10 +143,19 @@ final class Administration
             $this->audit($actor,$actor->tenantId(),'user.updated',$id);
         });
     }
-    public function resetPassword(Actor $actor, int $id, int $version, string $password): void
+    public function resetPassword(Actor $actor, int $id, int $version, string $password, bool $confirmedGlobalChange=false): void
     {
         $actor->requireAdmin();
-        throw new \RuntimeException('Mandanten-Admins dürfen das gemeinsame Kontopasswort nicht zurücksetzen.');
+        if (!$confirmedGlobalChange) throw new \RuntimeException('Bitte bestätigen Sie ausdrücklich die mandantenübergreifende Passwortänderung.');
+        if ($id===$actor->id()) throw new \RuntimeException('Das eigene Passwort bitte unter „Mein Konto“ ändern.');
+        AuthService::password($password);
+        $this->transaction($actor,$actor->tenantId(),function() use($actor,$id,$version,$password): void {
+            $row=$this->target($actor,$id,$version);
+            $s=$this->db->prepare('UPDATE accounts SET password_hash=?,must_change_password=1,auth_version=auth_version+1 WHERE id=? AND active=1');
+            $s->execute([password_hash($password,PASSWORD_DEFAULT),(int)$row['account_id']]);
+            if ($s->rowCount()!==1) throw new \RuntimeException('Benutzerkonto nicht verfügbar.');
+            $this->audit($actor,$actor->tenantId(),'user.password_reset',$id);
+        });
     }
     public function inviteUser(Actor $actor, string $role): string
     {

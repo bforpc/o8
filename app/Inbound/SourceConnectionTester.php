@@ -45,11 +45,24 @@ final class SourceConnectionTester
             $ok=curl_exec($handle); $status=(int)curl_getinfo($handle,CURLINFO_RESPONSE_CODE);
             if ($overflow) throw new \RuntimeException('WebDAV-Antwort ist zu groß. Quellordner verkleinern.');
             if ($ok===false) throw new \RuntimeException('WebDAV-Verbindung fehlgeschlagen. HTTPS, Zertifikat und Erreichbarkeit prüfen.');
-            if ($status===401 || $status===403) throw new \RuntimeException('WebDAV-Anmeldung oder Berechtigung fehlgeschlagen.');
-            if ($status!==207) throw new \RuntimeException('WebDAV-Server beantwortet PROPFIND nicht wie erwartet.');
+            if ($status!==207) throw new \RuntimeException(self::describeDavStatus($status));
             $count=$this->davCount($response);
             return ['kind'=>'webdav','message'=>'WebDAV-Verbindung erfolgreich.','count'=>$count];
         } finally { curl_close($handle); }
+    }
+
+    /** Return a safe, actionable diagnostic without exposing response bodies or credentials. */
+    public static function describeDavStatus(int $status): string
+    {
+        $message=match (true) {
+            in_array($status,[301,302,303,307,308],true) => 'WebDAV-Ziel leitet PROPFIND um (HTTP {status}). Die endgültige WebDAV-Adresse prüfen; Weiterleitungen werden nicht automatisch verfolgt.',
+            $status===401 => 'WebDAV-Anmeldung abgelehnt (HTTP {status}). Benutzername, Passwort oder App-Kennwort prüfen.',
+            $status===403 => 'WebDAV-Zugriff verweigert (HTTP {status}). Das Konto benötigt PROPFIND-Berechtigung für diesen Pfad.',
+            $status===404 => 'Der WebDAV-Server meldet den Pfad als nicht verfügbar (HTTP {status}). Manche Server liefern 404 auch bei fehlender Kontoberechtigung. Mit genau diesem Konto PROPFIND auf den vollständigen WebDAV-Pfad prüfen.',
+            $status===405 => 'WebDAV-Server erlaubt PROPFIND nicht (HTTP {status}). WebDAV-Freigabe und Methode serverseitig prüfen.',
+            default => 'WebDAV-Server antwortet auf PROPFIND mit HTTP {status}; erwartet wird HTTP 207 (Multi-Status).',
+        };
+        return str_replace('{status}',(string)$status,$message);
     }
 
     private function davCount(string $xml): int
