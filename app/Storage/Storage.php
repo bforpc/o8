@@ -61,10 +61,18 @@ final class Storage
         if (!preg_match('/^[a-f0-9-]{36}$/D',$uuid)) throw new \RuntimeException('Ungültige Storage-Zuordnung.');
         $target=$base.'/'.$uuid; $saved=json_decode($location['identity_json']??'null',true);
         clearstatcache(true);
-        if (!$saved || is_link($target) || realpath($target)!==$target || !is_dir($target)) throw new \RuntimeException('Storage zuerst durch den Betreiber einrichten und prüfen lassen.');
+        if (!is_array($saved) || is_link($target) || realpath($target)!==$target || !is_dir($target)) throw new \RuntimeException('Storage zuerst durch den Betreiber einrichten und prüfen lassen.');
         $b=stat($base); $t=stat($target); $marker=$target.'/.o8-storage';
-        if (!$b || !$t || $b['dev']!=$saved['base_dev'] || $b['ino']!=$saved['base_ino'] || $t['dev']!=$saved['tenant_dev'] || $t['ino']!=$saved['tenant_ino']
-            || is_link($marker) || !is_file($marker) || !hash_equals($saved['marker'],(string)@file_get_contents($marker))) throw new \RuntimeException('Storage-Identität geändert oder Mount fehlt. Zugriff gesperrt; Betreiber muss die Ablage prüfen.');
+        $markerMatches=is_string($saved['marker']??null) && !is_link($marker) && is_file($marker)
+            && hash_equals($saved['marker'],(string)@file_get_contents($marker));
+        // SMB/CIFS servers may report different device/inode numbers after a client
+        // remount (for example after a VM reboot). In SMB-compatible mode the stable,
+        // tenant-specific marker is the identity anchor; local filesystems retain the
+        // additional device/inode check to detect mount substitution.
+        $strictIdentity=(bool)($location['enforce_file_attributes']??true);
+        $inodeMismatch=$strictIdentity && (!$b || !$t || !isset($saved['base_dev'],$saved['base_ino'],$saved['tenant_dev'],$saved['tenant_ino'])
+            || $b['dev']!=$saved['base_dev'] || $b['ino']!=$saved['base_ino'] || $t['dev']!=$saved['tenant_dev'] || $t['ino']!=$saved['tenant_ino']);
+        if (!$b || !$t || $inodeMismatch || !$markerMatches || !is_readable($target) || !is_writable($target) || !is_executable($target)) throw new \RuntimeException('Storage-Identität geändert oder Mount fehlt. Zugriff gesperrt; Betreiber muss die Ablage prüfen.');
         return [$base,$target];
     }
     public function configure(Actor $actor,int $tenant,string $path,string $owner,string $group,bool $enforceFileAttributes=true): void

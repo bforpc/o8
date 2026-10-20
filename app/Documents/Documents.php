@@ -863,13 +863,14 @@ final class Documents
     {
         return $this->transaction($actor,function() use($actor,$id): array {
             $doc=$this->get($actor,$id);
-            $s=$this->db->prepare("SELECT f.*,s.root_path,s.linux_owner,s.linux_group,s.identity_json,t.public_id FROM document_files f JOIN storage_locations s ON s.tenant_id=f.tenant_id AND s.storage_key=f.storage_key JOIN tenants t ON t.id=f.tenant_id WHERE f.tenant_id=? AND f.document_id=? AND f.role='original' AND s.active=1");
+            $s=$this->db->prepare("SELECT f.*,s.root_path,s.linux_owner,s.linux_group,s.identity_json,s.enforce_file_attributes,t.public_id FROM document_files f JOIN storage_locations s ON s.tenant_id=f.tenant_id AND s.storage_key=f.storage_key JOIN tenants t ON t.id=f.tenant_id WHERE f.tenant_id=? AND f.document_id=? AND f.role='original' AND s.active=1");
             $s->execute([$actor->tenantId(),$id]); $f=$s->fetch(); if (!$f) throw new \RuntimeException('Original nicht verfügbar.');
             [, $target]=$this->storage->paths($f);
             if (!preg_match('/^[a-f0-9]{48}\.(pdf|jpg|png|odt|txt)$/D',$f['relative_path'])) throw new \RuntimeException('Dateipfad nicht freigegeben.');
             $path=$target.'/'.$f['relative_path']; clearstatcache(true,$path);
             $stat=lstat($path);
-            if (!$stat || is_link($path) || !is_file($path) || $stat['size']!=(int)$f['size_bytes'] || $stat['dev']!==stat($target)['dev']) throw new \RuntimeException('Original fehlt oder wurde verändert.');
+            $targetStat=stat($target); $strictFilesystem=(bool)($f['enforce_file_attributes']??true);
+            if (!$stat || !$targetStat || is_link($path) || !is_file($path) || $stat['size']!=(int)$f['size_bytes'] || ($strictFilesystem && $stat['dev']!==$targetStat['dev'])) throw new \RuntimeException('Original fehlt oder wurde verändert.');
             $handle=@fopen($path,'rb'); if (!$handle) throw new \RuntimeException('Original nicht lesbar.');
             $opened=fstat($handle);
             if (!$opened || $opened['ino']!==$stat['ino'] || $opened['dev']!==$stat['dev']) { fclose($handle); throw new \RuntimeException('Datei während Zugriff geändert.'); }
