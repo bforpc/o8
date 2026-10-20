@@ -16,6 +16,8 @@
 !/config.php.dist
 /storage/*
 !/storage/.gitkeep
+!/tests/o7-import.php
+
 
 # Local dependencies and Python/browser test output
 /.venv/
