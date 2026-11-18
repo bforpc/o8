@@ -10,7 +10,6 @@
 
 ![Settings / Einstellungen](docs/o8-screen3-public.png)
 
-![Account and sources / Konto und Quellen](docs/o8-screen4-public.png)
 
 ## English
 
